@@ -26,10 +26,11 @@ Build with either `make ARCH=x86` or `make ARCH=x86_64` commands depending on yo
 
 You may need to run the following commands to install packages (using fresh ubuntu-18.04 installation as example):
 
-* sudo apt install make gcc libcurl4-openssl-dev mesa-common-dev
-* sudo apt install libxxf86dga-dev libxrandr-dev libxxf86vm-dev libasound-dev
-* sudo apt install libsdl2-dev
-
+* sudo apt update
+* sudo apt install make gcc libcurl4-openssl-dev mesa-common-dev -y
+* sudo apt install libxxf86dga-dev libxrandr-dev libxxf86vm-dev libasound-dev -y
+* sudo apt install libsdl2-dev -y
+* sudo apt install mingw-w64 -y
 Build with: `make`
 
 Copy the resulting binaries from created `build` directory or use command:

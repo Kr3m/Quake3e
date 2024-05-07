@@ -1960,6 +1960,11 @@ static void RE_EndRegistration( void ) {
 	//}
 }
 
+void RE_getcgamefov( vec2_t *fov ) {
+    (*fov)[0] = tr.cgamefov[0];
+    (*fov)[1] = tr.cgamefov[1];
+}
+
 
 /*
 @@@@@@@@@@@@@@@@@@@@@
@@ -2033,6 +2038,8 @@ refexport_t *GetRefAPI ( int apiVersion, refimport_t *rimp ) {
 	re.GetConfig = RE_GetConfig;
 	re.VertexLighting = RE_VertexLighting;
 	re.SyncRender = RE_SyncRender;
+
+    re.getcgamefov = RE_getcgamefov;
 
 	return &re;
 }

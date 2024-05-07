@@ -121,6 +121,8 @@ typedef struct {
 	void	(*VertexLighting)( qboolean allowed );
 	void	(*SyncRender)( void );
 
+    void (*getcgamefov)( vec2_t *fov );
+
 
 } refexport_t;
 

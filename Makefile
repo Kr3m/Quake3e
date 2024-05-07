@@ -45,7 +45,7 @@ USE_RENDERER_DLOPEN = 1
 # valid options: opengl, vulkan, opengl2
 RENDERER_DEFAULT = opengl
 
-CNAME            = quake3e
+CNAME            = quake3e-df
 DNAME            = quake3e.ded
 
 RENDERER_PREFIX  = $(CNAME)

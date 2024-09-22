@@ -304,7 +304,7 @@ void NORETURN FORMAT_PRINTF(2, 3) QDECL Com_Error( errorParm_t code, const char 
 
 	com_errorEntered = qtrue;
 
-	Cvar_Set( "com_errorCode", va( "%i", code ) );
+	Cvar_SetIntegerValue( "com_errorCode", code );
 
 	// when we are running automated scripts, make sure we
 	// know if anything failed
@@ -2830,11 +2830,13 @@ Returns last event time
 */
 int Com_EventLoop( void ) {
 	sysEvent_t	ev;
-	netadr_t	evFrom;
+
+#ifndef DEDICATED
 	byte		bufData[ MAX_MSGLEN_BUF ];
 	msg_t		buf;
 
 	MSG_Init( &buf, bufData, MAX_MSGLEN );
+#endif // !DEDICATED
 
 	while ( 1 ) {
 		ev = Com_GetEvent();
@@ -2843,20 +2845,19 @@ int Com_EventLoop( void ) {
 		if ( ev.evType == SE_NONE ) {
 			// manually send packet events for the loopback channel
 #ifndef DEDICATED
+			netadr_t evFrom;
 			while ( NET_GetLoopPacket( NS_CLIENT, &evFrom, &buf ) ) {
 				CL_PacketEvent( &evFrom, &buf );
 			}
-#endif
 			while ( NET_GetLoopPacket( NS_SERVER, &evFrom, &buf ) ) {
 				// if the server just shut down, flush the events
 				if ( com_sv_running->integer ) {
 					Com_RunAndTimeServerPacket( &evFrom, &buf );
 				}
 			}
-
+#endif // !DEDICATED
 			return ev.evTime;
 		}
-
 
 		switch ( ev.evType ) {
 #ifndef DEDICATED
@@ -2872,7 +2873,7 @@ int Com_EventLoop( void ) {
 		case SE_JOYSTICK_AXIS:
 			CL_JoystickEvent( ev.evValue, ev.evValue2, ev.evTime );
 			break;
-#endif
+#endif // !DEDICATED
 		case SE_CONSOLE:
 			Cbuf_AddText( (char *)ev.evPtr );
 			Cbuf_AddText( "\n" );
@@ -3745,6 +3746,9 @@ void Com_Init( char *commandLine ) {
 	const char *s;
 	int	qport;
 
+	// get the initial time base
+	Sys_Milliseconds();
+
 	Com_Printf( "%s %s %s\n", SVN_VERSION, PLATFORM_STRING, __DATE__ );
 
 	if ( Q_setjmp( abortframe ) ) {
@@ -4010,7 +4014,8 @@ void Com_Init( char *commandLine ) {
 	// set com_frameTime so that if a map is started on the
 	// command line it will still be able to count on com_frameTime
 	// being random enough for a serverid
-	lastTime = com_frameTime = Com_Milliseconds();
+	// lastTime = com_frameTime = Com_Milliseconds();
+	Com_FrameInit();
 
 	if ( !com_errorEntered )
 		Sys_ShowConsole( com_viewlog->integer, qfalse );
@@ -4023,6 +4028,10 @@ void Com_Init( char *commandLine ) {
 	com_fullyInitialized = qtrue;
 
 	Com_Printf( "--- Common Initialization Complete ---\n" );
+
+	NET_Init();
+
+	Com_Printf( "Working directory: %s\n", Sys_Pwd() );
 }
 
 
@@ -4185,6 +4194,15 @@ static int Com_TimeVal( int minMsec )
 	return timeVal;
 }
 
+/*
+=================
+Com_FrameInit
+=================
+*/
+void Com_FrameInit( void )
+{
+	lastTime = com_frameTime = Com_Milliseconds();
+}
 
 /*
 =================
@@ -4370,9 +4388,7 @@ void Com_Frame( qboolean noDelay ) {
 		}
 		Com_EventLoop();
 
-		if ( !Cbuf_Wait() ) {
-			Cbuf_Execute();
-		}
+		Cbuf_Execute();
 
 		//
 		// client side
@@ -4389,7 +4405,9 @@ void Com_Frame( qboolean noDelay ) {
 	}
 #endif
 
-	NET_FlushPacketQueue();
+	NET_FlushPacketQueue( 0 );
+
+	Cbuf_Wait();
 
 	//
 	// report timing information

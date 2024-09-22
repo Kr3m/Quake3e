@@ -255,18 +255,19 @@ void Cbuf_Execute( void )
 {
 	char line[MAX_CMD_LINE], *text;
 	int i, n, quotes;
+	qboolean in_star_comment;
+	qboolean in_slash_comment;
 
 	if ( cmd_wait > 0 ) {
 		// delay command buffer execution
-		cmd_wait--;
 		return;
 	}
 
 	// This will keep // style comments all on one line by not breaking on
 	// a semicolon.  It will keep /* ... */ style comments all on one line by not
 	// breaking it for semicolon or newline.
-	qboolean in_star_comment = qfalse;
-	qboolean in_slash_comment = qfalse;
+	in_star_comment = qfalse;
+	in_slash_comment = qfalse;
 
 	while ( cmd_text.cursize > 0 )
 	{
@@ -355,9 +356,11 @@ void Cbuf_Execute( void )
 Cbuf_Wait
 ============
 */
-qboolean Cbuf_Wait( void )
+void Cbuf_Wait( void )
 {
-	return (cmd_wait > 0) ? qtrue : qfalse;
+	if ( cmd_wait > 0 ) {
+		--cmd_wait;
+	}
 }
 
 

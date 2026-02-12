@@ -347,6 +347,12 @@ static qboolean SV_GetValue( char* value, int valueSize, const char* key )
 		return qtrue;
 	}
 
+	if ( !Q_stricmp( key, "trap_Cvar_SetDescription_Q3E" ) )
+	{
+		Com_sprintf( value, valueSize, "%i", G_CVAR_SETDESCRIPTION );
+		return qtrue;
+	}
+
 	return qfalse;
 }
 
@@ -359,6 +365,15 @@ The module is making a system call
 ====================
 */
 static intptr_t SV_GameSystemCalls( intptr_t *args ) {
+
+	// detect infinite loops in QVM code by counting syscalls per VM_Call invocation
+	// the stock id 1.32 qagame.qvm has a bug in ClientSpawn() where a do/while(1) loop
+	// retrying spawn point selection can loop forever if all spawn points have FL_NO_BOTS
+	// set, causing the server to hang at 100% CPU
+	if ( ++gvm->syscallCount > 1000000 ) {
+		Com_Error( ERR_DROP, "game VM syscall overflow - Loss of control in VM" );
+	}
+
 	switch( args[0] ) {
 	case G_PRINT:
 		Com_Printf( "%s", (const char*)VMA(1) );
@@ -949,6 +964,10 @@ static intptr_t SV_GameSystemCalls( intptr_t *args ) {
 
 	case G_TESTPRINTFLOAT:
 		return sprintf( VMA(1), "%f", VMF(2) );
+
+	case G_CVAR_SETDESCRIPTION:
+		Cvar_SetDescription2( (const char*)VMA(1), (const char*)VMA(2) );
+		return 0;
 
 	case G_TRAP_GETVALUE:
 		VM_CHECKBOUNDS( gvm, args[1], args[2] );

@@ -203,6 +203,7 @@ struct vm_s {
 	uint32_t	dataLength;			// data segment length
 	uint32_t	exactDataLength;	// from qvm header
 	uint32_t	dataAlloc;			// actually allocated, for mmap()/munmap()
+	uint32_t	programStackExtra;
 
 	int			numSymbols;
 	vmSymbol_t	*symbols;
@@ -210,6 +211,8 @@ struct vm_s {
 	int			callLevel;			// counts recursive VM_Call
 	int			breakFunction;		// increment breakCount on function entry to this
 	int			breakCount;
+
+	int			syscallCount;		// syscall counter for current VM_Call invocation
 
 	int32_t		*jumpTableTargets;
 	int32_t		numJumpTableTargets;

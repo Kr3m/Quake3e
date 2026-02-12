@@ -240,29 +240,26 @@ const char *BuildFP( int multitexture, int alphatest, int fogMode )
 		return buf;
 	}
 
+	if ( alphatest || multitexture == GL_ADD  || multitexture == GL_MODULATE ) {
+		strcat( buf, "TEMP t; \n" );
+	}
+
 	switch ( multitexture ) {
 		case 0:
-			strcat( buf, "TEMP t; \n" );
 			strcat( buf, "TEX base, fragment.texcoord[0], texture[0], 2D; \n" );
-			strcat( buf, genATestFP( alphatest ) );
 			break;
 		case GL_ADD:
-			strcat( buf, "TEMP t; \n" );
 			strcat( buf, "TEX base, fragment.texcoord[0], texture[0], 2D; \n" );
-			strcat( buf, genATestFP( alphatest ) );
 			strcat( buf, "TEX t,    fragment.texcoord[1], texture[1], 2D; \n"
 			"ADD base, base, t; \n" );
 			break;
 		case GL_MODULATE:
-			strcat( buf, "TEMP t; \n" );
 			strcat( buf, "TEX base, fragment.texcoord[0], texture[0], 2D; \n" );
-			strcat( buf, genATestFP( alphatest ) );
 			strcat( buf, "TEX t,    fragment.texcoord[1], texture[1], 2D; \n" );
 			strcat( buf, "MUL base, base, t; \n" );
 			break;
 		case GL_REPLACE:
 			strcat( buf, "TEX base, fragment.texcoord[1], texture[1], 2D; \n" );
-			//strcat( buf, genATestFP( alphatest ) );
 			break;
 		default:
 			ri.Error( ERR_DROP, "Invalid multitexture mode %04x", multitexture );
@@ -271,15 +268,24 @@ const char *BuildFP( int multitexture, int alphatest, int fogMode )
 
 	if ( fogMode == FP_FOG_BLEND ) {
 		strcat( buf, "MUL base, base, fragment.color; \n" );
+		strcat( buf, genATestFP( alphatest ) );
 		strcat( buf, "TEMP fog; \n"
 		"TEX fog, fragment.texcoord[4], texture[2], 2D; \n"
 		"MUL fog, fog, program.local[0]; \n"
 		"LRP_SAT result.color, fog.a, fog, base; \n"
 		"END \n" );
 	} else {
-		strcat( buf,
-		"MUL result.color, base, fragment.color; \n"
-		"END \n" );
+		if ( alphatest ) {
+			strcat( buf, "MUL base, base, fragment.color; \n" );
+			strcat( buf, genATestFP( alphatest ) );
+			strcat( buf,
+			"MOV result.color, base; \n"
+			"END \n" );
+		} else {
+			strcat( buf,
+			"MUL result.color, base, fragment.color; \n"
+			"END \n" );
+		}
 	}
 
 	return buf;
@@ -333,7 +339,7 @@ static int getFPindex( int multitexture, int atest, int fogmode )
 	index <<= 2; // reserve bits for atest
 	switch ( atest )
 	{
-		case GLS_ATEST_GT_0: index |= 1; break;
+		case GLS_ATEST_GT_0:  index |= 1; break;
 		case GLS_ATEST_LT_80: index |= 2; break;
 		case GLS_ATEST_GE_80: index |= 3; break;
 		default: break;
@@ -796,7 +802,9 @@ void R_BuildWorldVBO( msurface_t *surf, int surfCount )
 	msurface_t **surfList;
 	srfSurfaceFace_t *face;
 	srfTriangles_t *tris;
+#ifdef USE_VBO_GRID
 	srfGridMesh_t *grid;
+#endif
 	msurface_t *sf;
 	int ibo_size;
 	int vbo_size;
@@ -843,6 +851,7 @@ void R_BuildWorldVBO( msurface_t *surf, int surfCount )
 			sf->shader->numIndexes += tris->numIndexes;
 			continue;
 		}
+#ifdef USE_VBO_GRID
 		grid = (srfGridMesh_t *) sf->data;
 		if ( grid->surfaceType == SF_GRID && isStaticShader( sf->shader ) ) {
 			grid->vboItemIndex = ++numStaticSurfaces;
@@ -855,6 +864,7 @@ void R_BuildWorldVBO( msurface_t *surf, int surfCount )
 			sf->shader->numIndexes += grid->vboExpectIndices;
 			continue;
 		}
+#endif // USE_VBO_GRID
 	}
 
 	if ( numStaticSurfaces == 0 ) {
@@ -912,11 +922,13 @@ void R_BuildWorldVBO( msurface_t *surf, int surfCount )
 			surfList[ n++ ] = sf;
 			continue;
 		}
+#ifdef USE_VBO_GRID
 		grid = (srfGridMesh_t *) sf->data;
 		if ( grid->surfaceType == SF_GRID && grid->vboItemIndex ) {
 			surfList[ n++ ] = sf;
 			continue;
 		}
+#endif
 	}
 
 	if ( n != numStaticSurfaces ) {
@@ -937,13 +949,17 @@ void R_BuildWorldVBO( msurface_t *surf, int surfCount )
 		sf = surfList[ i ];
 		face = (srfSurfaceFace_t *) sf->data;
 		tris = (srfTriangles_t *) sf->data;
+#ifdef USE_VBO_GRID
 		grid = (srfGridMesh_t *) sf->data;
+#endif
 		if ( face->surfaceType == SF_FACE )
 			face->vboItemIndex = i + 1;
 		else if ( tris->surfaceType == SF_TRIANGLES ) {
 			tris->vboItemIndex = i + 1;
+#ifdef USE_VBO_GRID
 		} else if ( grid->surfaceType == SF_GRID ){
 			grid->vboItemIndex = i + 1;
+#endif // USE_VBO_GRID
 		} else {
 			ri.Error( ERR_DROP, "Unexpected surface type" );
 		}
@@ -960,12 +976,14 @@ void R_BuildWorldVBO( msurface_t *surf, int surfCount )
 		rb_surfaceTable[ *sf->data ]( sf->data ); // VBO_PushData() may be called multiple times there
 		// setup colors and texture coordinates
 		VBO_PushData( i + 1, &tess );
+#ifdef USE_VBO_GRID
 		if ( grid->surfaceType == SF_GRID ) {
 			vbo_item_t *vi = vbo->items + i + 1;
 			if ( vi->num_vertexes != grid->vboExpectVertices || vi->num_indexes != grid->vboExpectIndices ) {
 				ri.Error( ERR_DROP, "Unexpected grid vertexes/indexes count" );
 			} 
 		}
+#endif // USE_VBO_GRID
 		tess.numIndexes = 0;
 		tess.numVertexes = 0;
 	}
@@ -1027,11 +1045,13 @@ __fail:
 			tris->vboItemIndex = 0;
 			continue;
 		}
+#ifdef USE_VBO_GRID
 		grid = (srfGridMesh_t *) sf->data;
 		if ( grid->surfaceType == SF_GRID ) {
 			grid->vboItemIndex = 0;
 			continue;
 		}
+#endif // USE_VBO_GRID
 	}
 
 	VBO_UnBind();

@@ -34,7 +34,7 @@ BUILD_CLIENT     = 1
 BUILD_SERVER     = 1
 
 USE_SDL          = 1
-USE_CURL         = 1
+USE_NEON         = 1# uses libneon; set to 0 to disable HTTP downloads
 USE_LOCAL_HEADERS= 0
 USE_SYSTEM_JPEG  = 0
 
@@ -150,16 +150,11 @@ ifndef USE_LOCAL_HEADERS
 USE_LOCAL_HEADERS=1
 endif
 
-ifndef USE_CURL
-USE_CURL=1
-endif
-
-ifndef USE_CURL_DLOPEN
-  ifdef MINGW
-    USE_CURL_DLOPEN=0
-  else
-    USE_CURL_DLOPEN=1
-  endif
+# USE_NEON enables the HTTP download backend.
+# The implementation uses libneon (GPL-2-compatible).
+#
+ifndef USE_NEON
+USE_NEON=1
 endif
 
 ifndef USE_OGG_VORBIS
@@ -223,6 +218,7 @@ BLIBDIR=$(MOUNT_DIR)/botlib
 JPDIR=$(MOUNT_DIR)/libjpeg
 OGGDIR=$(MOUNT_DIR)/libogg
 VORBISDIR=$(MOUNT_DIR)/libvorbis
+NEONDIR=$(MOUNT_DIR)/libneon/src
 
 bin_path=$(shell which $(1) 2> /dev/null)
 
@@ -334,15 +330,8 @@ ifeq ($(USE_LOCAL_HEADERS),1)
   BASE_CFLAGS += -DUSE_LOCAL_HEADERS=1
 endif
 
-ifeq ($(USE_CURL),1)
-  BASE_CFLAGS += -DUSE_CURL
-  ifeq ($(USE_CURL_DLOPEN),1)
-    BASE_CFLAGS += -DUSE_CURL_DLOPEN
-  else
-    ifeq ($(MINGW),1)
-      BASE_CFLAGS += -DCURL_STATICLIB
-    endif
-  endif
+ifeq ($(USE_NEON),1)
+  BASE_CFLAGS += -DUSE_NEON
 endif
 
 ifeq ($(USE_VULKAN_API),1)
@@ -462,14 +451,10 @@ ifdef MINGW
     endif
   endif
 
-  ifeq ($(USE_CURL),1)
-    BASE_CFLAGS += -I$(MOUNT_DIR)/libcurl/windows/include
-    ifeq ($(ARCH),x86)
-      CLIENT_LDFLAGS += -L$(MOUNT_DIR)/libcurl/windows/mingw/lib32
-    else
-      CLIENT_LDFLAGS += -L$(MOUNT_DIR)/libcurl/windows/mingw/lib64
-    endif
-    CLIENT_LDFLAGS += -lcurl -lz -lcrypt32
+  ifeq ($(USE_NEON),1)
+    # Use vendored libneon 0.33.0 from $(NEONDIR) - no system libneon needed
+    BASE_CFLAGS    += -I$(NEONDIR)
+    CLIENT_LDFLAGS += -lgnutls -lz
   endif
 
   ifeq ($(USE_OGG_VORBIS),1)
@@ -604,10 +589,10 @@ else
     CLIENT_LDFLAGS += -ljpeg
   endif
 
-  ifeq ($(USE_CURL),1)
-    ifeq ($(USE_CURL_DLOPEN),0)
-      CLIENT_LDFLAGS += -lcurl
-    endif
+  ifeq ($(USE_NEON),1)
+    # Use vendored libneon 0.33.0 from $(NEONDIR) - no system libneon needed
+    BASE_CFLAGS    += -I$(NEONDIR)
+    CLIENT_LDFLAGS += -lgnutls -lz -lpthread
   endif
 
   ifeq ($(USE_OGG_VORBIS),1)
@@ -797,6 +782,9 @@ makedirs:
 	@if [ ! -d $(B) ];then $(MKDIR) $(B);fi
 	@if [ ! -d $(B)/client ];then $(MKDIR) $(B)/client/qvm;fi
 	@if [ ! -d $(B)/client/jpeg ];then $(MKDIR) $(B)/client/jpeg;fi
+ifeq ($(USE_NEON),1)
+	@if [ ! -d $(B)/client/neon ];then $(MKDIR) $(B)/client/neon;fi
+endif
 ifeq ($(USE_SYSTEM_OGG),0)
 	@if [ ! -d $(B)/client/ogg ];then $(MKDIR) $(B)/client/ogg;fi
 endif
@@ -970,6 +958,23 @@ ifneq ($(USE_RENDERER_DLOPEN), 0)
     $(B)/rendv/puff.o \
     $(B)/rendv/q_math.o
 endif
+
+NEONOBJ = \
+  $(B)/client/neon/ne_alloc.o \
+  $(B)/client/neon/ne_auth.o \
+  $(B)/client/neon/ne_basic.o \
+  $(B)/client/neon/ne_dates.o \
+  $(B)/client/neon/ne_gnutls.o \
+  $(B)/client/neon/ne_i18n.o \
+  $(B)/client/neon/ne_md5.o \
+  $(B)/client/neon/ne_redirect.o \
+  $(B)/client/neon/ne_request.o \
+  $(B)/client/neon/ne_session.o \
+  $(B)/client/neon/ne_socket.o \
+  $(B)/client/neon/ne_socks.o \
+  $(B)/client/neon/ne_string.o \
+  $(B)/client/neon/ne_uri.o \
+  $(B)/client/neon/ne_utils.o
 
 JPGOBJ = \
   $(B)/client/jpeg/jaricom.o \
@@ -1202,8 +1207,9 @@ ifeq ($(HAVE_VM_COMPILED),true)
   endif
 endif
 
-ifeq ($(USE_CURL),1)
-  Q3OBJ += $(B)/client/cl_curl.o
+ifeq ($(USE_NEON),1)
+  Q3OBJ += $(B)/client/cl_neon.o  # neon-based download backend
+  Q3OBJ += $(NEONOBJ)
 endif
 
 ifdef MINGW
@@ -1431,6 +1437,9 @@ $(B)/client/%.o: $(BLIBDIR)/%.c
 	$(DO_BOT_CC)
 
 $(B)/client/jpeg/%.o: $(JPDIR)/%.c
+	$(DO_CC)
+
+$(B)/client/neon/%.o: $(NEONDIR)/%.c
 	$(DO_CC)
 
 $(B)/client/ogg/%.o: $(OGGDIR)/src/%.c

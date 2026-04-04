@@ -9,7 +9,7 @@ SET(RENDERER_PREFIX ${CNAME})
 SET(RENDERER_DEFAULT opengl) # valid options: opengl, vulkan, opengl2
 
 OPTION(USE_SDL "" ON)
-OPTION(USE_CURL "" ON)
+OPTION(USE_NEON "" ON)
 OPTION(USE_LOCAL_HEADERS "" ON)
 OPTION(USE_VULKAN "" ON)
 OPTION(USE_SYSTEM_JPEG "" OFF)
@@ -77,10 +77,38 @@ IF(NO_VM_COMPILED)
 	TARGET_COMPILE_DEFINITIONS(qcommon_ded PRIVATE NO_VM_COMPILED)
 ENDIF()
 
-# client + cURL
+# client + neon HTTP download backend
 AUX_SOURCE_DIRECTORY(code/client CLIENT_SRCS)
-IF(NOT USE_CURL)
-	list(REMOVE_ITEM CLIENT_SRCS code/client/cl_curl.c)
+IF(NOT USE_NEON)
+	list(REMOVE_ITEM CLIENT_SRCS code/client/cl_neon.c)
+ENDIF()
+
+IF(USE_NEON)
+	# Build libneon 0.33.0 from vendored source (GPL-2-compatible, GnuTLS backend)
+	SET(NEON_VENDOR_SRCS
+		code/libneon/src/ne_alloc.c
+		code/libneon/src/ne_auth.c
+		code/libneon/src/ne_basic.c
+		code/libneon/src/ne_dates.c
+		code/libneon/src/ne_gnutls.c
+		code/libneon/src/ne_i18n.c
+		code/libneon/src/ne_md5.c
+		code/libneon/src/ne_redirect.c
+		code/libneon/src/ne_request.c
+		code/libneon/src/ne_session.c
+		code/libneon/src/ne_socket.c
+		code/libneon/src/ne_socks.c
+		code/libneon/src/ne_string.c
+		code/libneon/src/ne_uri.c
+		code/libneon/src/ne_utils.c
+	)
+	ADD_LIBRARY(neon_vendor STATIC ${NEON_VENDOR_SRCS})
+	TARGET_INCLUDE_DIRECTORIES(neon_vendor PRIVATE ${CMAKE_SOURCE_DIR}/code/libneon/src)
+	# GnuTLS and zlib are system libraries required by the neon SSL/compression backend
+	find_library(GNUTLS_LIBRARY NAMES gnutls REQUIRED)
+	find_library(ZLIB_LIBRARY NAMES z REQUIRED)
+	TARGET_LINK_LIBRARIES(neon_vendor PUBLIC ${GNUTLS_LIBRARY} ${ZLIB_LIBRARY})
+	message(STATUS "Building vendored libneon 0.33.0 (GnuTLS: ${GNUTLS_LIBRARY})")
 ENDIF()
 
 #ADD_LIBRARY(client OBJECT ${CLIENT_SRCS})
@@ -96,6 +124,12 @@ ELSE()
 	#ADD_LIBRARY(jpeg ${JPEG_SRCS})
 	#TARGET_LINK_LIBRARIES(client jpeg)
 	ADD_LIBRARY(client OBJECT ${CLIENT_SRCS} ${JPEG_SRCS})
+ENDIF()
+
+# Wire up vendored libneon for the download backend
+IF(USE_NEON)
+	TARGET_COMPILE_DEFINITIONS(client PRIVATE USE_NEON)
+	TARGET_INCLUDE_DIRECTORIES(client PRIVATE ${CMAKE_SOURCE_DIR}/code/libneon/src)
 ENDIF()
 
 # renderers
@@ -228,5 +262,8 @@ IF(WIN32)
 	TARGET_LINK_LIBRARIES(${DNAME}${BINEXT} winmm comctl32 ws2_32)
 ELSE()
 	TARGET_LINK_LIBRARIES(${CNAME}${BINEXT} m ${CMAKE_DL_LIBS})
+	IF(USE_NEON)
+		TARGET_LINK_LIBRARIES(${CNAME}${BINEXT} neon_vendor pthread)
+	ENDIF()
 	TARGET_LINK_LIBRARIES(${DNAME}${BINEXT} m ${CMAKE_DL_LIBS})
 ENDIF()

@@ -454,7 +454,7 @@ ifdef MINGW
 
   ifeq ($(USE_NEON),1)
     BASE_CFLAGS    += -I$(NEONDIR)
-    CLIENT_LDFLAGS += -lpthread
+    CLIENT_LDFLAGS += -Wl,-Bstatic -lpthread -Wl,-Bdynamic
   endif
 
   ifeq ($(USE_OGG_VORBIS),1)

@@ -1439,7 +1439,7 @@ static int do_bind(int fd, int peer_family,
     {
         int flag = 1;
 
-        (void) setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof flag);
+        (void) setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&flag, sizeof flag);
         /* An error here is not fatal, so ignore it. */
     }
 #endif
@@ -1564,7 +1564,7 @@ int ne_sock_connect(ne_socket *sock,
 #if defined(HAVE_SETSOCKOPT) && (defined(TCP_NODELAY) || defined(WIN32))
     { /* Disable the Nagle algorithm. */
         int flag = 1;
-        setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof flag);
+        setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const char *)&flag, sizeof flag);
     }
 #endif
     ret = connect_socket(sock, fd, addr, htons(port));

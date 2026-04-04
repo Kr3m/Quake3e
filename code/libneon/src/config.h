@@ -349,16 +349,24 @@
 /* #undef NE_FMT_OFF64_T */
 
 /* Define to be printf format string for off_t */
-#define NE_FMT_OFF_T "ld"
+#ifndef WIN32
+# define NE_FMT_OFF_T "ld"
+#endif
 
 /* Define to be printf format string for size_t */
-#define NE_FMT_SIZE_T "lu"
+#ifndef WIN32
+# define NE_FMT_SIZE_T "lu"
+#endif
 
 /* Define to be printf format string for ssize_t */
-#define NE_FMT_SSIZE_T "ld"
+#ifndef WIN32
+# define NE_FMT_SSIZE_T "ld"
+#endif
 
 /* Define to be printf format string for time_t */
-#define NE_FMT_TIME_T "ld"
+#ifndef WIN32
+# define NE_FMT_TIME_T "ld"
+#endif
 
 /* Define to be printf format string for XML_Size */
 /* #undef NE_FMT_XML_SIZE */
@@ -427,7 +435,9 @@
 #define SIZEOF_INT 4
 
 /* The size of `long', as computed by sizeof. */
-#define SIZEOF_LONG 8
+#ifndef WIN32
+# define SIZEOF_LONG 8
+#endif
 
 /* The size of `long long', as computed by sizeof. */
 #define SIZEOF_LONG_LONG 8
@@ -600,3 +610,58 @@
 #if defined(HAVE_STPCPY) && defined(HAVE_DECL_STPCPY) && !HAVE_DECL_STPCPY && !defined(stpcpy)
 char *stpcpy(char *, const char *);
 #endif
+
+/* Windows / MinGW-w64 overrides: disable GnuTLS and Unix-specific features */
+#ifdef WIN32
+# undef  HAVE_GNUTLS
+# undef  HAVE_GNUTLS_CERTIFICATE_GET_ISSUER
+# undef  HAVE_GNUTLS_CERTIFICATE_GET_X509_CAS
+# undef  HAVE_GNUTLS_CERTIFICATE_SET_RETRIEVE_FUNCTION2
+# undef  HAVE_GNUTLS_CERTIFICATE_SET_X509_SYSTEM_TRUST
+# undef  HAVE_GNUTLS_PRIVKEY_IMPORT_EXT
+# undef  HAVE_GNUTLS_SESSION_GET_DATA2
+# undef  HAVE_GNUTLS_X509_CRT_EQUALS
+# undef  HAVE_GNUTLS_X509_CRT_SIGN2
+# undef  HAVE_GNUTLS_X509_DN_GET_RDN_AVA
+# undef  NE_HAVE_SSL
+# undef  NE_HAVE_ZLIB
+# undef  NE_USE_POLL
+/* Unix network headers not available on Windows */
+# undef  HAVE_ARPA_INET_H
+# undef  HAVE_NETINET_IN_H
+# undef  HAVE_NETINET_TCP_H
+# undef  HAVE_NETDB_H
+# undef  HAVE_SYS_SOCKET_H
+# undef  HAVE_SYS_UIO_H
+# undef  HAVE_SYS_SELECT_H
+# undef  HAVE_SYS_POLL_H
+/* Unix-only functions/headers */
+# undef  HAVE_UNISTD_H
+# undef  HAVE_SIGNAL_H
+# undef  HAVE_SIGNAL
+# undef  HAVE_PIPE
+# undef  HAVE_POLL
+# undef  HAVE_SENDMSG
+# undef  HAVE_ICONV
+# undef  HAVE_ICONV_H
+# undef  HAVE_LIBINTL_H
+# undef  HAVE_GMTIME_R
+# undef  HAVE_EXPLICIT_BZERO
+# undef  HAVE_STPCPY
+# undef  HAVE_DECL_STPCPY
+# undef  HAVE_STRERROR_R
+# undef  HAVE_DECL_STRERROR_R
+# undef  STRERROR_R_CHAR_P
+# undef  HAVE_STRUCT_TM_TM_GMTOFF
+# undef  HAVE_TIMEZONE
+# undef  HAVE_GETTIMEOFDAY
+/* sizeof(long) == 4 on Windows even for x86_64 */
+# undef  SIZEOF_LONG
+# define SIZEOF_LONG 4
+/* size_t/ssize_t/time_t are 64-bit (long long) on Windows x86_64;
+ * ne_off_t is long (32-bit) so NE_FMT_OFF_T stays "ld" */
+# define NE_FMT_OFF_T   "ld"
+# define NE_FMT_SIZE_T  "llu"
+# define NE_FMT_SSIZE_T "lld"
+# define NE_FMT_TIME_T  "lld"
+#endif /* WIN32 */

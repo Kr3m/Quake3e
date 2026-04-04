@@ -327,7 +327,7 @@ static void *neon_download_thread( void *arg )
 		memset( &uri, 0, sizeof( uri ) );
 		if ( ne_uri_parse( currentUrl, &uri ) != 0 || !uri.host ) {
 			snprintf( state->errorMsg, sizeof( state->errorMsg ),
-			          "Failed to parse URL: %s", currentUrl );
+			          "Failed to parse URL: %.256s", currentUrl );
 			state->complete = -1;
 			ne_uri_free( &uri );
 			return NULL;

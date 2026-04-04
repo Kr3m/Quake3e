@@ -219,6 +219,7 @@ JPDIR=$(MOUNT_DIR)/libjpeg
 OGGDIR=$(MOUNT_DIR)/libogg
 VORBISDIR=$(MOUNT_DIR)/libvorbis
 NEONDIR=$(MOUNT_DIR)/libneon/src
+NEONCONFIGDIR=$(MOUNT_DIR)/libneon/src
 
 bin_path=$(shell which $(1) 2> /dev/null)
 
@@ -452,9 +453,8 @@ ifdef MINGW
   endif
 
   ifeq ($(USE_NEON),1)
-    # Use vendored libneon 0.33.0 from $(NEONDIR) - no system libneon needed
     BASE_CFLAGS    += -I$(NEONDIR)
-    CLIENT_LDFLAGS += -lgnutls -lz
+    CLIENT_LDFLAGS += -lpthread
   endif
 
   ifeq ($(USE_OGG_VORBIS),1)
@@ -964,7 +964,6 @@ NEONOBJ = \
   $(B)/client/neon/ne_auth.o \
   $(B)/client/neon/ne_basic.o \
   $(B)/client/neon/ne_dates.o \
-  $(B)/client/neon/ne_gnutls.o \
   $(B)/client/neon/ne_i18n.o \
   $(B)/client/neon/ne_md5.o \
   $(B)/client/neon/ne_redirect.o \
@@ -975,6 +974,10 @@ NEONOBJ = \
   $(B)/client/neon/ne_string.o \
   $(B)/client/neon/ne_uri.o \
   $(B)/client/neon/ne_utils.o
+
+ifndef MINGW
+  NEONOBJ += $(B)/client/neon/ne_gnutls.o
+endif
 
 JPGOBJ = \
   $(B)/client/jpeg/jaricom.o \

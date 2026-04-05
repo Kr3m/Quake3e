@@ -54,7 +54,7 @@ cvar_t	*cl_activeAction;
 cvar_t	*cl_motdString;
 
 cvar_t	*cl_allowDownload;
-#ifdef USE_CURL
+#ifdef USE_NEON
 cvar_t	*cl_mapAutoDownload;
 #endif
 cvar_t	*cl_conXOffset;
@@ -105,7 +105,7 @@ char				cl_oldGame[ MAX_QPATH ];
 qboolean			cl_oldGameSet;
 static	qboolean	noGameRestart = qfalse;
 
-#ifdef USE_CURL
+#ifdef USE_NEON
 download_t			download;
 #endif
 
@@ -135,7 +135,7 @@ static void CL_ServerStatus_f( void );
 static void CL_ServerStatusResponse( const netadr_t *from, msg_t *msg );
 static void CL_ServerInfoPacket( const netadr_t *from, msg_t *msg );
 
-#ifdef USE_CURL
+#ifdef USE_NEON
 static void CL_Download_f( void );
 #endif
 static void CL_LocalServers_f( void );
@@ -730,7 +730,7 @@ void CL_ReadDemoMessage( void ) {
 		return;
 	}
 	buf.cursize = LittleLong( buf.cursize );
-	if ( buf.cursize == -1 ) {
+	if ( buf.cursize < 0 ) {
 		CL_DemoCompleted();
 		return;
 	}
@@ -939,7 +939,7 @@ static void CL_PlayDemo_f( void ) {
 		clc.compat = qfalse;
 
 	// read demo messages until connected
-#ifdef USE_CURL
+#ifdef USE_NEON
 	while ( cls.state >= CA_CONNECTED && cls.state < CA_PRIMED && !Com_DL_InProgress( &download ) ) {
 #else
 	while ( cls.state >= CA_CONNECTED && cls.state < CA_PRIMED ) {
@@ -1000,8 +1000,8 @@ CL_ShutdownAll
 */
 void CL_ShutdownAll( void ) {
 
-#ifdef USE_CURL
-	CL_cURL_Shutdown();
+#ifdef USE_NEON
+	CL_Neon_Shutdown();
 #endif
 
 	// clear and mute all sounds until next registration
@@ -1989,17 +1989,17 @@ Called when all downloading has been completed
 */
 static void CL_DownloadsComplete( void ) {
 
-#ifdef USE_CURL
-	// if we downloaded with cURL
-	if ( clc.cURLUsed ) {
-		clc.cURLUsed = qfalse;
-		CL_cURL_Shutdown();
-		if ( clc.cURLDisconnected ) {
+#ifdef USE_NEON
+	// if we downloaded with neon
+	if ( clc.neonUsed ) {
+		clc.neonUsed = qfalse;
+		CL_Neon_Shutdown();
+		if ( clc.neonDisconnected ) {
 			if ( clc.downloadRestart ) {
 				FS_Restart( clc.checksumFeed );
 				clc.downloadRestart = qfalse;
 			}
-			clc.cURLDisconnected = qfalse;
+			clc.neonDisconnected = qfalse;
 			CL_Reconnect_f();
 			return;
 		}
@@ -2097,7 +2097,7 @@ void CL_NextDownload( void )
 {
 	char *s;
 	char *remoteName, *localName;
-	qboolean useCURL = qfalse;
+	qboolean useNeon = qfalse;
 
 	// A download has finished, check whether this matches a referenced checksum
 	if(*clc.downloadName)
@@ -2134,7 +2134,7 @@ void CL_NextDownload( void )
 		else
 			s = localName + strlen(localName); // point at the null byte
 
-#ifdef USE_CURL
+#ifdef USE_NEON
 		if(!(cl_allowDownload->integer & DLF_NO_REDIRECT)) {
 			if(clc.sv_allowDownload & DLF_NO_REDIRECT) {
 				Com_Printf("WARNING: server does not "
@@ -2147,14 +2147,14 @@ void CL_NextDownload( void )
 					"download redirection, but does not "
 					"have sv_dlURL set\n");
 			}
-			else if(!CL_cURL_Init()) {
-				Com_Printf("WARNING: could not load "
-					"cURL library\n");
+			else if(!CL_Neon_Init()) {
+				Com_Printf("WARNING: could not initialize "
+					"neon HTTP library\n");
 			}
 			else {
-				CL_cURL_BeginDownload(localName, va("%s/%s",
+				CL_Neon_BeginDownload(localName, va("%s/%s",
 					clc.sv_dlURL, remoteName));
-				useCURL = qtrue;
+				useNeon = qtrue;
 			}
 		}
 		else if(!(clc.sv_allowDownload & DLF_NO_REDIRECT)) {
@@ -2163,9 +2163,9 @@ void CL_NextDownload( void )
 				"configuration (cl_allowDownload is %d)\n",
 				cl_allowDownload->integer);
 		}
-#endif /* USE_CURL */
+#endif /* USE_NEON */
 
-		if( !useCURL ) {
+		if( !useNeon ) {
 		if( (cl_allowDownload->integer & DLF_NO_UDP) ) {
 				Com_Error(ERR_DROP, "UDP Downloads are "
 					"disabled on your client. "
@@ -2231,7 +2231,7 @@ void CL_InitDownloads( void ) {
 
 	}
 
-#ifdef USE_CURL
+#ifdef USE_NEON
 	if ( cl_mapAutoDownload->integer && ( !(clc.sv_allowDownload & DLF_ENABLE) || clc.demoplaying ) )
 	{
 		const char *info, *mapname, *bsp;
@@ -2250,7 +2250,7 @@ void CL_InitDownloads( void ) {
 			}
 		}
 	}
-#endif // USE_CURL
+#endif // USE_NEON
 
 	CL_DownloadsComplete();
 }
@@ -2981,8 +2981,8 @@ CL_Frame
 */
 void CL_Frame( int msec, int realMsec ) {
 
-#ifdef USE_CURL
-	if ( download.cURL ) {
+#ifdef USE_NEON
+	if ( download.neon ) {
 		Com_DL_Perform( &download );
 	}
 #endif
@@ -2994,13 +2994,13 @@ void CL_Frame( int msec, int realMsec ) {
 	// save the msec before checking pause
 	cls.realFrametime = realMsec;
 
-#ifdef USE_CURL
-	if ( clc.downloadCURLM ) {
-		CL_cURL_PerformDownload();
+#ifdef USE_NEON
+	if ( clc.downloadNeonM ) {
+		CL_Neon_PerformDownload();
 		// we can't process frames normally when in disconnected
 		// download mode since the ui vm expects cls.state to be
 		// CA_CONNECTED
-		if ( clc.cURLDisconnected ) {
+		if ( clc.neonDisconnected ) {
 			cls.frametime = msec;
 			cls.realtime += msec;
 			cls.framecount++;
@@ -3291,7 +3291,7 @@ void CL_StartHunkUsers( void ) {
 CL_RefMalloc
 ============
 */
-static void *CL_RefMalloc( int size ) {
+static void *CL_RefMalloc( size_t size ) {
 	return Z_TagMalloc( size, TAG_RENDERER );
 }
 
@@ -3919,13 +3919,9 @@ void CL_Init( void ) {
 
 	cl_allowDownload = Cvar_Get( "cl_allowDownload", "1", CVAR_ARCHIVE_ND );
 	Cvar_SetDescription( cl_allowDownload, "Enables downloading of content needed in server. Valid bitmask flags:\n 1: Downloading enabled\n 2: Do not use HTTP/FTP downloads\n 4: Do not use UDP downloads" );
-#ifdef USE_CURL
+#ifdef USE_NEON
 	cl_mapAutoDownload = Cvar_Get( "cl_mapAutoDownload", "0", CVAR_ARCHIVE_ND );
 	Cvar_SetDescription( cl_mapAutoDownload, "Automatic map download for play and demo playback (via automatic \\dlmap call)." );
-#ifdef USE_CURL_DLOPEN
-	cl_cURLLib = Cvar_Get( "cl_cURLLib", DEFAULT_CURL_LIB, 0 );
-	Cvar_SetDescription( cl_cURLLib, "Filename of cURL library to load." );
-#endif
 #endif
 
 	cl_conXOffset = Cvar_Get ("cl_conXOffset", "0", 0);
@@ -4033,7 +4029,7 @@ void CL_Init( void ) {
 	Cmd_AddCommand ("serverinfo", CL_Serverinfo_f );
 	Cmd_AddCommand ("systeminfo", CL_Systeminfo_f );
 
-#ifdef USE_CURL
+#ifdef USE_NEON
 	Cmd_AddCommand( "download", CL_Download_f );
 	Cmd_AddCommand( "dlmap", CL_Download_f );
 #endif
@@ -4112,7 +4108,7 @@ void CL_Shutdown( const char *finalmsg, qboolean quit ) {
 	Cmd_RemoveCommand ("systeminfo");
 	Cmd_RemoveCommand ("modelist");
 
-#ifdef USE_CURL
+#ifdef USE_NEON
 	Com_DL_Cleanup( &download );
 
 	Cmd_RemoveCommand( "download" );
@@ -5014,7 +5010,7 @@ static void CL_ShowIP_f( void ) {
 }
 
 
-#ifdef USE_CURL
+#ifdef USE_NEON
 
 qboolean CL_Download( const char *cmd, const char *pakname, qboolean autoDownload )
 {
@@ -5082,4 +5078,4 @@ static void CL_Download_f( void )
 
 	CL_Download( Cmd_Argv( 0 ), Cmd_Argv( 1 ), qfalse );
 }
-#endif // USE_CURL
+#endif // USE_NEON

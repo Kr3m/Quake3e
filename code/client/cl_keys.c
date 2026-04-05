@@ -589,7 +589,7 @@ static void CL_KeyDownEvent( int key, unsigned time )
 
 	// escape is always handled special
 	if ( key == K_ESCAPE ) {
-#ifdef USE_CURL
+#ifdef USE_NEON
 		if ( Com_DL_InProgress( &download ) && download.mapAutoDownload ) {
 			Com_DL_Cleanup( &download );
 		}

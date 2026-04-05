@@ -31,8 +31,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "snd_public.h"
 #include "keys.h"
 
-#ifdef USE_CURL
-#include "cl_curl.h"
+#ifdef USE_NEON
+#include "cl_neon.h"
 #endif
 
 // file full of random crap that gets used to create cl_guid
@@ -83,7 +83,7 @@ typedef struct {
 
 // the parseEntities array must be large enough to hold PACKET_BACKUP frames of
 // entities, so that when a delta compressed message arives from the server
-// it can be un-deltad from the original 
+// it can be un-deltad from the original
 #define	MAX_PARSE_ENTITIES	( PACKET_BACKUP * MAX_SNAPSHOT_ENTITIES )
 
 extern int g_console_field_width;
@@ -207,14 +207,14 @@ typedef struct {
 	char		downloadList[BIG_INFO_STRING]; // list of paks we need to download
 	qboolean	downloadRestart;	// if true, we need to do another FS_Restart because we downloaded a pak
 
-#ifdef USE_CURL
-	qboolean	cURLEnabled;
-	qboolean	cURLUsed;
-	qboolean	cURLDisconnected;
+#ifdef USE_NEON
+	qboolean	neonEnabled;
+	qboolean	neonUsed;
+	qboolean	neonDisconnected;
 	char		downloadURL[MAX_OSPATH];
-	CURL		*downloadCURL;
-	CURLM		*downloadCURLM;
-#endif /* USE_CURL */
+	void		*downloadNeon;
+	void		*downloadNeonM;
+#endif /* USE_NEON */
 
 	// demo information
 	char		demoName[MAX_OSPATH];
@@ -363,7 +363,7 @@ extern	clientStatic_t		cls;
 extern	char		cl_oldGame[MAX_QPATH];
 extern	qboolean	cl_oldGameSet;
 
-#ifdef USE_CURL
+#ifdef USE_NEON
 
 extern		download_t	download;
 qboolean	Com_DL_Perform( download_t *dl );
@@ -401,7 +401,7 @@ extern	cvar_t	*cl_aviPipeFormat;
 extern	cvar_t	*cl_activeAction;
 
 extern	cvar_t	*cl_allowDownload;
-#ifdef USE_CURL
+#ifdef USE_NEON
 extern	cvar_t	*cl_mapAutoDownload;
 extern	cvar_t	*cl_dlDirectory;
 #endif
@@ -531,7 +531,7 @@ void	SCR_DebugGraph( float value );
 int		SCR_GetBigStringWidth( const char *str );	// returns in virtual 640x480 coordinates
 
 void	SCR_AdjustFrom640( float *x, float *y, float *w, float *h );
-void	SCR_FillRect( float x, float y, float width, float height, 
+void	SCR_FillRect( float x, float y, float width, float height,
 					 const float *color );
 void	SCR_DrawPic( float x, float y, float width, float height, qhandle_t hShader );
 void	SCR_DrawNamedPic( float x, float y, float width, float height, const char *picname );

@@ -240,6 +240,8 @@ void VM_CheckBounds( const vm_t *vm, unsigned int address, unsigned int length )
 	{
 		if ( (address | length) > vm->dataMask || (address + length) > vm->dataMask )
 		{
+			Com_Printf( S_COLOR_RED "VM_CheckBounds FAIL: vm=%s addr=0x%X len=0x%X dataMask=0x%X addr+len=0x%X\n",
+				vm->name, address, length, vm->dataMask, address + length );
 			Com_Error( ERR_DROP, "program tried to bypass data segment bounds" );
 		}
 	}
@@ -257,6 +259,8 @@ void VM_CheckBounds2( const vm_t *vm, unsigned int addr1, unsigned int addr2, un
 	{
 		if ( (addr1 | addr2 | length) > vm->dataMask || (addr1 + length) > vm->dataMask || (addr2+length) > vm->dataMask )
 		{
+			Com_Printf( S_COLOR_RED "VM_CheckBounds2 FAIL: vm=%s addr1=0x%X addr2=0x%X len=0x%X dataMask=0x%X\n",
+				vm->name, addr1, addr2, length, vm->dataMask );
 			Com_Error( ERR_DROP, "program tried to bypass data segment bounds" );
 		}
 	}
@@ -971,7 +975,7 @@ static int InvertCondition( int op )
 		case OP_GTF: return OP_LEF;
 		case OP_GEF: return OP_LTF;
 
-		default: 
+		default:
 			Com_Error( ERR_DROP, "incorrect condition opcode %i", op );
 			return op;
 	}

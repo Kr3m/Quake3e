@@ -345,7 +345,7 @@ GVM_ArgPtr
 exported version
 ====================
 */
-void *GVM_ArgPtr( intptr_t intValue ) 
+void *GVM_ArgPtr( intptr_t intValue )
 {
 	return VM_ArgPtr( intValue );
 }
@@ -386,6 +386,9 @@ static intptr_t SV_GameSystemCalls( intptr_t *args ) {
 		Com_Error( ERR_DROP, "game VM syscall overflow - Loss of control in VM" );
 	}
 	++gvm->syscallCount;
+	vm_lastSyscall = args[0];
+	Com_Printf( "game syscall: %ld args[1]=0x%lX args[2]=0x%lX args[3]=0x%lX args[4]=0x%lX\n",
+		(long)args[0], (long)args[1], (long)args[2], (long)args[3], (long)args[4] );
 
 	switch( args[0] ) {
 	case G_PRINT:
@@ -397,7 +400,7 @@ static intptr_t SV_GameSystemCalls( intptr_t *args ) {
 	case G_MILLISECONDS:
 		return Sys_Milliseconds();
 	case G_CVAR_REGISTER:
-		Cvar_Register( VMA(1), VMA(2), VMA(3), args[4], gvm->privateFlag ); 
+		Cvar_Register( VMA(1), VMA(2), VMA(3), args[4], gvm->privateFlag );
 		return 0;
 	case G_CVAR_UPDATE:
 		Cvar_Update( VMA(1), gvm->privateFlag );
@@ -1089,7 +1092,7 @@ static void SV_InitGameVM( qboolean restart ) {
 	for ( i = 0; i < sv.maxclients; i++ ) {
 		svs.clients[i].gentity = NULL;
 	}
-	
+
 	// use the current msec count for a random seed
 	// init for this gamestate
 	VM_Call( gvm, 3, GAME_INIT, sv.time, Com_Milliseconds(), restart );

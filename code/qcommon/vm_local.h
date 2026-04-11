@@ -255,5 +255,6 @@ typedef struct opcode_info_s
 } opcode_info_t;
 
 extern opcode_info_t ops[ OP_MAX ];
+extern intptr_t vm_lastSyscall;
 
 #endif // VM_LOCAL_H

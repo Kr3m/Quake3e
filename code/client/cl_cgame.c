@@ -463,8 +463,9 @@ The cgame module is making a system call
 ====================
 */
 static intptr_t CL_CgameSystemCalls( intptr_t *args ) {
-	Com_DPrintf( "cgame syscall: %ld args[1]=0x%lX args[2]=0x%lX args[3]=0x%lX\n",
-		(long)args[0], (long)args[1], (long)args[2], (long)args[3] );
+	vm_lastSyscall = args[0];
+	Com_Printf( "cgame syscall: %ld args[1]=0x%lX args[2]=0x%lX args[3]=0x%lX args[4]=0x%lX\n",
+		(long)args[0], (long)args[1], (long)args[2], (long)args[3], (long)args[4] );
 	switch( args[0] ) {
 	case CG_PRINT:
 		Com_Printf( "%s", (const char*)VMA(1) );

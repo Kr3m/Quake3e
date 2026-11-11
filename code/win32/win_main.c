@@ -112,12 +112,6 @@ void NORETURN FORMAT_PRINTF(1, 2) QDECL Sys_Error( const char *error, ... ) {
 		TranslateMessage( &msg );
 		DispatchMessage( &msg );
 	}
-
-	SetUnhandledExceptionFilter( NULL );
-
-	Sys_DestroyConsole();
-
-	exit( 1 );
 }
 
 
@@ -690,6 +684,7 @@ static const char *GetExceptionName( DWORD code )
 		case EXCEPTION_INVALID_DISPOSITION: return "INVALID_DISPOSITION";
 		case EXCEPTION_GUARD_PAGE: return "GUARD_PAGE";
 		case EXCEPTION_INVALID_HANDLE: return "INVALID_HANDLE";
+		case EXCEPTION_INT_DIVIDE_BY_ZERO: return "INTEGER_DIVIDE_BY_ZERO";
 		default: break;
 	}
 

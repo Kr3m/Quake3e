@@ -36,7 +36,7 @@ and one exported function: Perform
 
 #include "vm_local.h"
 
-opcode_info_t ops[ OP_MAX ] =
+const opcode_info_t ops[ OP_MAX ] =
 {
 	// size, stack, nargs, flags
 	{ 0, 0, 0, 0 }, // undef
@@ -495,7 +495,7 @@ static void VM_LoadSymbols( vm_t *vm ) {
 			break;
 		}
 		chars = strlen( token );
-		sym = Hunk_Alloc( sizeof( *sym ) + chars, h_high );
+		sym = Hunk_Alloc( sizeof( *sym ) + chars, h_current );
 		*prev = sym;
 		prev = &sym->next;
 		sym->next = NULL;
@@ -863,7 +863,7 @@ static vmHeader_t *VM_LoadQVM( vm_t *vm, qboolean alloc ) {
 
 	if ( alloc ) {
 		// allocate zero filled space for initialized and uninitialized data
-		vm->dataBase = Hunk_Alloc( dataAlloc, h_high );
+		vm->dataBase = Hunk_Alloc( dataAlloc, h_current );
 		vm->dataMask = dataLength - 1;
 		vm->dataAlloc = dataAlloc;
 	} else {
@@ -893,7 +893,7 @@ static vmHeader_t *VM_LoadQVM( vm_t *vm, qboolean alloc ) {
 		Com_Printf( "Loading %d jump table targets\n", vm->numJumpTableTargets );
 
 		if ( alloc ) {
-			vm->jumpTableTargets = (int32_t *) Hunk_Alloc( header->jtrgLength, h_high );
+			vm->jumpTableTargets = (int32_t *) Hunk_Alloc( header->jtrgLength, h_current );
 		} else {
 			if ( vm->numJumpTableTargets != previousNumJumpTableTargets ) {
 				VM_Free( vm );
@@ -924,7 +924,7 @@ static vmHeader_t *VM_LoadQVM( vm_t *vm, qboolean alloc ) {
 		vm->numJumpTableTargets = length >> 2;
 		Com_Printf( "Loading %d external jump table targets\n", vm->numJumpTableTargets );
 		if ( alloc == qtrue ) {
-			vm->jumpTableTargets = (int32_t *) Hunk_Alloc( length, h_high );
+			vm->jumpTableTargets = (int32_t *) Hunk_Alloc( length, h_current );
 		} else {
 			Com_Memset( vm->jumpTableTargets, 0, length );
 		}
@@ -1098,6 +1098,7 @@ static void VM_Fixup( instruction_t *buf, int instructionCount )
 		//n + 3: label1:
 		// ...
 		//n + x: label2:
+		// NOTE: this transform is not suitable for FP to handle NaNs
 		if ( ( ops[i->op].flags & (JUMP | FPU) ) == JUMP && !(i+1)->jused && (i+1)->op == OP_CONST && (i+2)->op == OP_JUMP ) {
 			if ( i->value == n + 3 && (i+1)->value >= n + 3 ) {
 				i->op = InvertCondition( i->op );
@@ -1121,6 +1122,19 @@ static void VM_Fixup( instruction_t *buf, int instructionCount )
 			}
 		}
 
+		// local = func() ; return local -> return func(), assume that local is not used/referenced afterwards
+		if ( (i + 1)->op == OP_CONST && (i + 2)->op == OP_CALL && (i + 3)->op == OP_STORE4 && (i + 4)->op == OP_LOCAL && (i + 5)->op == OP_LOAD4 && (i + 6)->op == OP_LEAVE ) {
+			if ( i->value == (i + 4)->value && !(i + 4)->jused ) {
+				(i + 0)->op = OP_IGNORE; (i + 0)->value = 0;
+				(i + 3)->op = OP_IGNORE; (i + 3)->value = 2; // jump over 2 next instructions
+				(i + 4)->op = OP_IGNORE; (i + 4)->value = 0;
+				(i + 5)->op = OP_IGNORE; (i + 5)->value = 0;
+				i += 7;
+				n += 7;
+				continue;
+			}
+		}
+
 		i++;
 		n++;
 	}
@@ -1132,6 +1146,7 @@ static void VM_Fixup( instruction_t *buf, int instructionCount )
 VM_LoadInstructions
 
 loads instructions in structured format
+performs basic consistency checks
 =================
 */
 const char *VM_LoadInstructions( const byte *code_pos, int codeLength, int instructionCount, instruction_t *buf )
@@ -1151,7 +1166,7 @@ const char *VM_LoadInstructions( const byte *code_pos, int codeLength, int instr
 	// load instructions and perform some initial calculations/checks
 	for ( i = 0; i < instructionCount; i++, ci++, op1 = op0 ) {
 		op0 = *code_pos;
-		if ( op0 < 0 || op0 >= OP_MAX ) {
+		if ( (unsigned) op0 >= OP_MAX ) {
 			sprintf( errBuf, "bad opcode %02X at offset %d", op0, (int)(code_pos - code_start) );
 			return errBuf;
 		}
@@ -1183,6 +1198,16 @@ const char *VM_LoadInstructions( const byte *code_pos, int codeLength, int instr
 
 		ci->opStack = opStack;
 		opStack += ops[ op0 ].stack;
+
+		// opstack checks
+		if ( opStack < 0 ) {
+			sprintf( errBuf, "opStack underflow at %i", i );
+			return errBuf;
+		}
+		if ( opStack >= PROC_OPSTACK_SIZE * 4 ) {
+			sprintf( errBuf, "opStack overflow at %i", i );
+			return errBuf;
+		}
 	}
 
 	return NULL;
@@ -1223,28 +1248,12 @@ const char *VM_CheckInstructions( instruction_t *buf,
 								int dataLength )
 {
 	static char errBuf[ 128 ];
-	instruction_t *opStackPtr[ PROC_OPSTACK_SIZE ];
+	instruction_t *opStackPtr[ PROC_OPSTACK_SIZE + 1 ];
 	int i, m, n, v, op0, op1, opStack, pstack;
 	instruction_t *ci, *proc;
 	int startp, endp;
 	int safe_stores;
 	int unsafe_stores;
-
-	ci = buf;
-	opStack = 0;
-
-	// opstack checks
-	for ( i = 0; i < instructionCount; i++, ci++ ) {
-		opStack += ops[ ci->op ].stack;
-		if ( opStack < 0 ) {
-			sprintf( errBuf, "opStack underflow at %i", i );
-			return errBuf;
-		}
-		if ( opStack >= PROC_OPSTACK_SIZE * 4 ) {
-			sprintf( errBuf, "opStack overflow at %i", i );
-			return errBuf;
-		}
-	}
 
 	ci = buf;
 	pstack = 0;
@@ -1317,7 +1326,8 @@ const char *VM_CheckInstructions( instruction_t *buf,
 			// locate endproc
 			for ( endp = 0, n = i+1 ; n < instructionCount; n++ ) {
 				if ( buf[n].op == OP_PUSH && buf[n+1].op == OP_LEAVE ) {
-					buf[n+1].endp = 1;
+					buf[n+0].endp = 1; // OP_PUSH
+					buf[n+1].endp = 1; // OP_LEAVE
 					endp = n;
 					break;
 				}
@@ -1331,9 +1341,11 @@ const char *VM_CheckInstructions( instruction_t *buf,
 			continue;
 		}
 
-		// proc opstack will carry max.possible opstack value
-		if ( proc && ci->opStack > proc->opStack )
+		// proc opStack will carry max.used opStack value
+		// to be checked against vm->opStackTop on function entry
+		if ( proc && ci->opStack > proc->opStack ) {
 			proc->opStack = ci->opStack;
+		}
 
 		// function return
 		if ( op0 == OP_LEAVE ) {
@@ -1343,7 +1355,7 @@ const char *VM_CheckInstructions( instruction_t *buf,
 				sprintf( errBuf, "bad programStack %i at %i", v, i );
 				return errBuf;
 			}
-			// bad opStack before return
+			// bad opStack before return: either void (OP_PUSH) or real value must be present
 			if ( ci->opStack != 4 ) {
 				v = ci->opStack;
 				sprintf( errBuf, "bad opStack %i at %i", v, i );
@@ -1387,6 +1399,20 @@ const char *VM_CheckInstructions( instruction_t *buf,
 			}
 			// mark jump target
 			buf[v].jused = 1;
+#if (id386 || idx64)
+			// mark NaN-checks for vm_x86
+			if ( ops[ci->op].flags & FPU ) {
+				switch ( ci->op ) {
+					case OP_EQF:
+					case OP_LTF:
+					case OP_LEF:
+						ci->nanchk = 1;
+						break;
+					default:
+						break;
+				}
+			}
+#endif
 			continue;
 		}
 
@@ -1425,6 +1451,10 @@ const char *VM_CheckInstructions( instruction_t *buf,
 					proc->swtch = 1;
 				else
 					ci->swtch = 1;
+			}
+			// mark next instruction as jump target too
+			if ( i < instructionCount-1 ) {
+				buf[i+1].jused = 1;
 			}
 			continue;
 		}
@@ -1610,12 +1640,21 @@ __noJTS:
 			}
 			// if there is a switch statement in function -
 			// mark all potential jump labels
-			if ( ci->swtch )
+			if ( ci->swtch ) {
 				v = ci->swtch;
-			if ( ci->opStack > 0 )
-				ci->jused = 0;
-			else if ( v )
+			}
+			if ( ci->opStack > 0 ) {
+				// ci->jused = 0; // do not reset already marked targets
+			} else if ( v ) {
 				ci->jused = 1;
+			}
+		}
+	}
+
+	// explicitly mark all jump targets with unsafe bit
+	for ( i = 0, ci = buf; i < instructionCount; i++, ci++ ) {
+		if ( ci->jused ) {
+			ci->safe = 0;
 		}
 	}
 
@@ -1855,7 +1894,7 @@ vm_t *VM_Create( vmIndex_t index, syscall_t systemCalls, dllSyscall_t dllSyscall
 
 	// allocate space for the jump targets, which will be filled in by the compile/prep functions
 	vm->instructionCount = header->instructionCount;
-	//vm->instructionPointers = Hunk_Alloc(vm->instructionCount * sizeof(*vm->instructionPointers), h_high);
+	//vm->instructionPointers = Hunk_Alloc(vm->instructionCount * sizeof(*vm->instructionPointers), h_current );
 	vm->instructionPointers = NULL;
 
 	// copy or compile the instructions
@@ -2014,7 +2053,7 @@ intptr_t QDECL VM_Call( vm_t *vm, int nargs, int callnum, ... )
 	if ( vm->entryPoint )
 	{
 		//rcg010207 -  see dissertation at top of VM_DllSyscall() in this file.
-		int32_t args[MAX_VMMAIN_CALL_ARGS-1];
+		int32_t args[MAX_VMMAIN_CALL_ARGS-1] = { 0 };
 		va_list ap;
 		va_start( ap, callnum );
 		for ( i = 0; i < nargs; i++ ) {

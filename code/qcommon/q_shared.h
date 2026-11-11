@@ -63,7 +63,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 //#pragma warning(disable : 4136)
 #pragma warning(disable : 4152)		// nonstandard extension, function/data pointer conversion in expression
 #pragma warning(disable : 4200)		// nonstandard extension used: size-sided array in struct/union
-//#pragma warning(disable : 4201)
+#pragma warning(disable : 4201)		// nonstandard extension used: nameless struct/union
 #pragma warning(disable : 4206)		// nonstandard extension used: translation unit is empty
 //#pragma warning(disable : 4214)
 #pragma warning(disable : 4267)		// conversion from 'size_t' to 'int', possible loss of data
@@ -358,9 +358,9 @@ typedef enum {
 #endif
 
 typedef enum {
-	h_high,
-	h_low,
-	h_dontcare
+	h_high,		// high side / server data
+	h_low,		// low side / client data
+	h_current	// follow current permanent allocation preference
 } ha_pref;
 
 #ifdef HUNK_DEBUG
@@ -749,7 +749,7 @@ void	COM_ParseWarning( const char *format, ... ) __attribute__ ((format (printf,
 char	*COM_ParseComplex( const char **data_p, qboolean allowLineBreak );
 
 typedef enum {
-	TK_GENEGIC = 0, // for single-char tokens
+	TK_GENERIC = 0, // for single-char tokens
 	TK_STRING,
 	TK_QUOTED,
 	TK_EQ,

@@ -138,7 +138,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #endif // __arm64__
 
 #if defined (__PPC64__)
-#if defined (__LITTLE_ENDIAN__) || defined (__LITTLE_ENDIAN)
+// not defined(__LITTLE_ENDIAN): glibc's <endian.h> defines that constant
+// on every host, which made big-endian ppc64 builds little-endian ones
+#if defined (__LITTLE_ENDIAN__) || ( defined (__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ )
 #define ARCH_STRING "ppc64le"
 #define Q3_LITTLE_ENDIAN
 #else
@@ -287,6 +289,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #define _GCC_SSE2
 #endif
 #endif // idx64
+
+#if defined(__VSX__)
+#define _GCC_VSX
+#endif // __VSX__
 
 // Modifier for printing size_t values portably
 

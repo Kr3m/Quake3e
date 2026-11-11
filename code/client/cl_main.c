@@ -578,7 +578,11 @@ static void CL_Record_f( void ) {
 	}
 
 	// sync 0 doesn't prevent recording, so not forcing it off .. everyone does g_sync 1 ; record ; g_sync 0 ..
-	if ( NET_IsLocalAddress( &clc.serverAddress ) && !Cvar_VariableIntegerValue( "g_synchronousClients" ) ) {
+	if ( NET_IsLocalAddress( &clc.serverAddress ) &&
+		!Cvar_VariableIntegerValue( "g_synchronousClients" ) &&
+		// Don't nag if we're simply recording everything automatically.
+		!cl_autoRecordDemo->integer )
+	{
 		Com_Printf (S_COLOR_YELLOW "WARNING: You should set 'g_synchronousClients 1' for smoother demo recording\n");
 	}
 
@@ -906,11 +910,12 @@ static void CL_PlayDemo_f( void ) {
 	FS_FCloseFile( hFile );
 	hFile = FS_INVALID_HANDLE;
 
+	CL_Disconnect( qtrue );
+
 	// make sure a local server is killed
 	// 2 means don't force disconnect of local client
 	Cvar_Set( "sv_killserver", "2" );
-
-	CL_Disconnect( qtrue );
+	SV_Frame( 0 );
 
 	// clc.demofile will be closed during CL_Disconnect so reopen it
 	if ( FS_FOpenFileRead( name, &clc.demofile, qtrue ) == -1 )
@@ -982,12 +987,30 @@ static void CL_NextDemo( void ) {
 /*
 =====================
 CL_ShutdownVMs
+
+Called by CL_Shutdown(), Cl_ShutdownAll(), vid_restart code,
+
+right before CL_ShutdownRef() so it is safe to clean hunk
 =====================
 */
 static void CL_ShutdownVMs( void )
 {
+	// clear and mute all sounds until next registration
+	S_DisableSounds();
+
 	CL_ShutdownCGame();
 	CL_ShutdownUI();
+
+	// there is no valid gamestate to record at this stage but do this
+	// after CGAME/UI shutdown to let it finish own auto recording/renaming stuff
+	if ( clc.demorecording )
+		CL_StopRecord_f();
+
+	// no cine conusmers at this stage
+	CIN_CloseAllVideos();
+
+	// clear all the client data on the hunk
+	Hunk_Clear( h_low );
 }
 
 
@@ -1003,9 +1026,6 @@ void CL_ShutdownAll( void ) {
 #ifdef USE_NEON
 	CL_Neon_Shutdown();
 #endif
-
-	// clear and mute all sounds until next registration
-	S_DisableSounds();
 
 	// shutdown VMs
 	CL_ShutdownVMs();
@@ -1028,25 +1048,6 @@ void CL_ShutdownAll( void ) {
 
 /*
 =================
-CL_ClearMemory
-=================
-*/
-void CL_ClearMemory( void ) {
-	// if not running a server clear the whole hunk
-	if ( !com_sv_running->integer ) {
-		// clear the whole hunk
-		Hunk_Clear();
-		// clear collision map data
-		CM_ClearMap();
-	} else {
-		// clear all the client data on the hunk
-		Hunk_ClearToMark();
-	}
-}
-
-
-/*
-=================
 CL_FlushMemory
 
 Called by CL_Disconnect_f, CL_DownloadsComplete
@@ -1057,8 +1058,6 @@ void CL_FlushMemory( void ) {
 
 	// shutdown all the client stuff
 	CL_ShutdownAll();
-
-	CL_ClearMemory();
 
 	CL_StartHunkUsers();
 }
@@ -1073,15 +1072,15 @@ screen to let the user know about it, then dump all client
 memory on the hunk from cgame, ui, and renderer
 =====================
 */
-void CL_MapLoading( void ) {
+qboolean CL_MapLoading( void ) {
 	if ( com_dedicated->integer ) {
 		cls.state = CA_DISCONNECTED;
 		Key_SetCatcher( KEYCATCH_CONSOLE );
-		return;
+		return qfalse;
 	}
 
 	if ( !com_cl_running->integer ) {
-		return;
+		return qfalse;
 	}
 
 	Con_Close();
@@ -1093,7 +1092,7 @@ void CL_MapLoading( void ) {
 		Com_Memset( cls.updateInfoString, 0, sizeof( cls.updateInfoString ) );
 		Com_Memset( clc.serverMessage, 0, sizeof( clc.serverMessage ) );
 		Com_Memset( &cl.gameState, 0, sizeof( cl.gameState ) );
-		clc.lastPacketSentTime = cls.realtime - 9999;  // send packet immediately
+		clc.lastPacketSentTime = cls.realtime - RETRANSMIT_TIMEOUT; // send packet immediately
 		cls.framecount++;
 		SCR_UpdateScreen();
 	} else {
@@ -1105,11 +1104,13 @@ void CL_MapLoading( void ) {
 		Key_SetCatcher( 0 );
 		cls.framecount++;
 		SCR_UpdateScreen();
-		clc.connectTime = -RETRANSMIT_TIMEOUT;
+		clc.connectTime = cls.realtime - RECONNECT_TIMEOUT; // send packet immediately
 		NET_StringToAdr( cls.servername, &clc.serverAddress, NA_UNSPEC );
 		// we don't need a challenge on the localhost
 		CL_CheckForResend();
 	}
+
+	return qtrue;
 }
 
 
@@ -1211,11 +1212,6 @@ qboolean CL_Disconnect( qboolean showMainMenu ) {
 
 	cl_disconnecting = qtrue;
 
-	// Stop demo recording
-	if ( clc.demorecording ) {
-		CL_StopRecord_f();
-	}
-
 	// Stop demo playback
 	if ( clc.demofile != FS_INVALID_HANDLE ) {
 		FS_FCloseFile( clc.demofile );
@@ -1243,6 +1239,11 @@ qboolean CL_Disconnect( qboolean showMainMenu ) {
 		CL_ShutdownCGame();
 	}
 
+	// Stop demo recording
+	if ( clc.demorecording ) {
+		CL_StopRecord_f();
+	}
+
 	SCR_StopCinematic();
 	S_StopAllSounds();
 	Key_ClearStates();
@@ -1255,7 +1256,7 @@ qboolean CL_Disconnect( qboolean showMainMenu ) {
 	FS_PureServerSetLoadedPaks( "", "" );
 	FS_PureServerSetReferencedPaks( "", "" );
 
-	FS_ClearPakReferences( FS_GENERAL_REF | FS_UI_REF | FS_CGAME_REF );
+	FS_ClearPakReferences( FS_ALL_REF );
 
 	if ( CL_GameSwitch() ) {
 		// keep current gamestate and connection
@@ -1573,6 +1574,17 @@ static void CL_Connect_f( void ) {
 	}
 
 	Q_strncpyz( buffer, server, sizeof( buffer ) );
+
+	len = strlen( buffer );
+	if ( len <= 0 ) {
+		return;
+	}
+
+	// some programs may add ending slash
+	if ( buffer[len - 1] == '/' ) {
+		buffer[len - 1] = '\0';
+	}
+
 	server = buffer;
 
 	// skip leading "q3a:/" in connection string
@@ -1585,17 +1597,7 @@ static void CL_Connect_f( void ) {
 		server++;
 	}
 
-	len = strlen( server );
-	if ( len <= 0 ) {
-		return;
-	}
-
-	// some programs may add ending slash
-	if ( buffer[len-1] == '/' ) {
-		buffer[len-1] = '\0';
-	}
-
-	if ( !*server ) {
+	if ( *server == '\0' ) {
 		return;
 	}
 
@@ -1657,7 +1659,7 @@ static void CL_Connect_f( void ) {
 	}
 
 	Key_SetCatcher( 0 );
-	clc.connectTime = -99999;	// CL_CheckForResend() will fire immediately
+	clc.connectTime = cls.realtime - RECONNECT_TIMEOUT; // CL_CheckForResend() will fire immediately
 	clc.connectPacketCount = 0;
 
 	Cvar_Set( "cl_reconnectArgs", args );
@@ -1786,12 +1788,6 @@ static void CL_Vid_Restart( refShutdownCode_t shutdownCode ) {
 	if ( CL_VideoRecording() )
 		CL_CloseAVI( qfalse );
 
-	if ( clc.demorecording )
-		CL_StopRecord_f();
-
-	// clear and mute all sounds until next registration
-	S_DisableSounds();
-
 	// shutdown VMs
 	CL_ShutdownVMs();
 
@@ -1812,8 +1808,6 @@ static void CL_Vid_Restart( refShutdownCode_t shutdownCode ) {
 
 	// unpause so the cgame definitely gets a snapshot and renders a frame
 	Cvar_Set( "cl_paused", "0" );
-
-	CL_ClearMemory();
 
 	// startup all the client stuff
 	CL_StartHunkUsers();
@@ -2280,7 +2274,7 @@ static void CL_CheckForResend( void ) {
 		return;
 	}
 
-	if ( cls.realtime - clc.connectTime < RETRANSMIT_TIMEOUT ) {
+	if ( cls.realtime - clc.connectTime < RECONNECT_TIMEOUT ) {
 		return;
 	}
 
@@ -2692,7 +2686,7 @@ static qboolean CL_ConnectionlessPacket( const netadr_t *from, msg_t *msg ) {
 		clc.challenge = atoi(Cmd_Argv(1));
 		cls.state = CA_CHALLENGING;
 		clc.connectPacketCount = 0;
-		clc.connectTime = -99999;
+		clc.connectTime = cls.realtime - RECONNECT_TIMEOUT;
 
 		// take this address as the new server address.  This allows
 		// a server proxy to hand off connections to multiple servers
@@ -2753,7 +2747,7 @@ static qboolean CL_ConnectionlessPacket( const netadr_t *from, msg_t *msg ) {
 		Netchan_Setup( NS_CLIENT, &clc.netchan, from, Cvar_VariableIntegerValue( "net_qport" ), clc.challenge, clc.compat );
 
 		cls.state = CA_CONNECTED;
-		clc.lastPacketSentTime = cls.realtime - 9999; // send first packet immediately
+		clc.lastPacketSentTime = cls.realtime - RETRANSMIT_TIMEOUT; // send first packet immediately
 		return qtrue;
 	}
 
@@ -3160,7 +3154,7 @@ static void CL_ShutdownRef( refShutdownCode_t code ) {
 #endif
 
 	// clear and mute all sounds until next registration
-	// S_DisableSounds();
+	// S_DisableSounds(); // -> already done in CL_ShutdownVMs()
 
 	if ( code >= REF_DESTROY_WINDOW ) { // +REF_UNLOAD_DLL
 		// shutdown sound system before renderer
@@ -3263,6 +3257,9 @@ void CL_StartHunkUsers( void ) {
 			}
 		}
 	}
+
+	// client data goes on low side of the hunk
+	Hunk_AllocPreference( h_low );
 
 	if ( !cls.rendererStarted ) {
 		cls.rendererStarted = qtrue;
@@ -3419,6 +3416,7 @@ static void CL_InitRef( void ) {
 #endif
 	rimp.Hunk_AllocateTempMemory = Hunk_AllocateTempMemory;
 	rimp.Hunk_FreeTempMemory = Hunk_FreeTempMemory;
+	rimp.Hunk_GetTempMemory = Hunk_GetTempMemory;
 
 	rimp.CM_ClusterPVS = CM_ClusterPVS;
 	rimp.CM_DrawDebugSurface = CM_DrawDebugSurface;
@@ -3528,53 +3526,82 @@ video [filename]
 static void CL_Video_f( void )
 {
 	char filename[ MAX_OSPATH ];
+	char pipeFormat[ MAX_CVAR_VALUE_STRING ];
 	const char *ext;
 	qboolean pipe;
 	int i;
 
-	if( !clc.demoplaying )
-	{
-		Com_Printf( "The %s command can only be used when playing back demos\n", Cmd_Argv( 0 ) );
+	if ( !clc.demoplaying ) {
+		Com_Printf( S_COLOR_WARNING "The %s command can only be used when playing back demos\n", Cmd_Argv( 0 ) );
 		return;
 	}
 
 	pipe = ( Q_stricmp( Cmd_Argv( 0 ), "video-pipe" ) == 0 );
 
-	if ( pipe )
-		ext = "mp4";
-	else
-		ext = "avi";
+	if ( pipe ) {
+		char *e;
+		ext = "mp4"; // default pipe extension
 
-	if ( Cmd_Argc() == 2 )
-	{
+		if ( !CL_ValidatePipeFormat( cl_aviPipeFormat->string ) ) {
+			Com_Printf( S_COLOR_ERROR "Invalid video-pipe format: %s\n", cl_aviPipeFormat->string );
+			return;
+		}
+
+		// search for an extension after '|' char, pipe format will be cut at this point
+		Q_strncpyz( pipeFormat, cl_aviPipeFormat->string, sizeof( pipeFormat ) );
+		e = strchr( pipeFormat, '|' );
+		if ( e != NULL ) {
+			// terminate format string at this point
+			*e++ = '\0';
+			// skip leading whitespaces
+			while ( *e != '\0' && *e <= ' ' ) {
+				e++;
+			}
+			// non-zero extension found
+			if ( *e != '\0' && *e > ' ' ) {
+				int len = (int)strlen( e ) - 1;
+				// re-assign extension
+				ext = e;
+				// strip trailing whitespaces
+				while ( len > 0 && e[ len ] <= ' ' ) {
+					--len;
+				}
+				e[len + 1] = '\0';
+			}
+		}
+	} else {
+		ext = "avi";
+	}
+
+	if ( Cmd_Argc() == 2 ) {
 		// explicit filename
 		Com_sprintf( filename, sizeof( filename ), "videos/%s", Cmd_Argv( 1 ) );
 
 		// override video file extension
-		if ( pipe )
-		{
-			char *sep = strrchr( filename, '/' ); // last path separator
+		if ( pipe ) {
 			char *e = strrchr( filename, '.' );
+			char *sep = strrchr( filename, PATH_SEP ); // last path separator
+
+			if ( !sep ) {
+				sep = strrchr( filename, PATH_SEP_FOREIGN );
+			}
 
 			if ( e && e > sep && *(e+1) != '\0' ) {
 				ext = e + 1;
 				*e = '\0';
 			}
 		}
-	}
-	else
-	{
+	} else {
 		 // scan for a free filename
-		for ( i = 0; i <= 9999; i++ )
-		{
+		for ( i = 0; i <= 9999; i++ ) {
 			Com_sprintf( filename, sizeof( filename ), "videos/video%04d.%s", i, ext );
-			if ( !FS_FileExists( filename ) )
+			if ( !FS_FileExists( filename ) ) {
 				break; // file doesn't exist
+			}
 		}
 
-		if ( i > 9999 )
-		{
-			Com_Printf( S_COLOR_RED "ERROR: no free file names to create video\n" );
+		if ( i > 9999 ) {
+			Com_Printf( S_COLOR_ERROR "ERROR: no free file names to create video\n" );
 			return;
 		}
 
@@ -3582,14 +3609,13 @@ static void CL_Video_f( void )
 		Com_sprintf( filename, sizeof( filename ), "videos/video%04d", i );
 	}
 
-
 	clc.aviSoundFrameRemainder = 0.0f;
 	clc.aviVideoFrameRemainder = 0.0f;
 
 	Q_strncpyz( clc.videoName, filename, sizeof( clc.videoName ) );
 	clc.videoIndex = 0;
 
-	CL_OpenAVIForWriting( va( "%s.%s", clc.videoName, ext ), pipe, qfalse );
+	CL_OpenAVIForWriting( va( "%s.%s", clc.videoName, ext ), pipe ? pipeFormat : NULL, qfalse );
 }
 
 
@@ -4070,9 +4096,6 @@ void CL_Shutdown( const char *finalmsg, qboolean quit ) {
 
 	noGameRestart = quit;
 	CL_Disconnect( qfalse );
-
-	// clear and mute all sounds until next registration
-	S_DisableSounds();
 
 	CL_ShutdownVMs();
 

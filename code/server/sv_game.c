@@ -1032,6 +1032,8 @@ void SV_ShutdownGameProgs( void ) {
 	VM_Free( gvm );
 	gvm = NULL;
 	FS_VM_CloseFiles( H_QAGAME );
+
+	CM_ClearMap();
 }
 
 /*
@@ -1108,6 +1110,8 @@ void SV_RestartGameProgs( void ) {
 		return;
 	}
 	VM_Call( gvm, 1, GAME_SHUTDOWN, qtrue );
+
+	Hunk_AllocPreference( h_high );
 
 	// do a restart instead of a free
 	gvm = VM_Restart( gvm );

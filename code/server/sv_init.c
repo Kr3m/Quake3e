@@ -414,6 +414,10 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 	int			checksum;
 	qboolean	isBot;
 	const char	*p;
+#ifndef DEDICATED
+	qboolean	clientLoading;
+#endif
+	void		*buf;
 
 	// shut down the existing game if it is running
 	SV_ShutdownGameProgs();
@@ -426,14 +430,16 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 #ifndef DEDICATED
 	// if not running a dedicated server CL_MapLoading will connect the client to the server
 	// also print some status stuff
-	CL_MapLoading();
+	clientLoading = CL_MapLoading();
 
 	// make sure all the client stuff is unloaded
 	CL_ShutdownAll();
 #endif
 
-	// clear the whole hunk because we're (re)loading the server
-	Hunk_Clear();
+	// clear server-side hunk
+	Hunk_Clear( h_high );
+
+	FS_ResetLoadStack();
 
 	// clear collision map data
 	CM_ClearMap();
@@ -441,8 +447,7 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 	// timescale can be updated before SV_Frame() and cause division-by-zero in SV_RateMsec()
 	Cvar_CheckRange( com_timescale, "0.001", NULL, CV_FLOAT );
 
-	// Restart renderer?
-	// CL_StartHunkUsers( );
+	Hunk_AllocPreference( h_high );
 
 	// init client structures and svs.numSnapshotEntities
 	if ( !Cvar_VariableIntegerValue( "sv_running" ) ) {
@@ -525,7 +530,16 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 	FS_Restart( sv.checksumFeed );
 
 	Sys_SetStatus( "Loading map %s", mapname );
-	CM_LoadMap( va( "maps/%s.bsp", mapname ), qfalse, &checksum );
+
+	buf = CM_LoadMap( va( "maps/%s.bsp", mapname ), qfalse, &checksum );
+#ifndef DEDICATED
+	if ( !clientLoading )
+#endif
+	{
+		// release BSP data immediately on dedicated runs
+		Hunk_FreeTempMemory( buf );
+		buf = NULL;
+	}
 
 	// set serverinfo visible name
 	Cvar_Set( "mapname", mapname );
@@ -613,16 +627,16 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 	// we need to touch the cgame and ui qvm because they could be in
 	// separate pk3 files and the client will need to download the pk3
 	// files with the latest cgame and ui qvm to pass the pure check
-	FS_TouchFileInPak( "vm/cgame.qvm" );
-	FS_TouchFileInPak( "vm/ui.qvm" );
+	FS_TouchFileInPak( "vm/cgame.qvm", FS_CGAME_REF );
+	FS_TouchFileInPak( "vm/ui.qvm", FS_UI_REF );
 
 	// the server sends these to the clients so they can figure
 	// out which pk3s should be auto-downloaded
 	p = FS_ReferencedPakNames();
 	if ( FS_ExcludeReference() ) {
 		// \fs_excludeReference may mask our current ui/cgame qvms
-		FS_TouchFileInPak( "vm/cgame.qvm" );
-		FS_TouchFileInPak( "vm/ui.qvm" );
+		FS_TouchFileInPak( "vm/cgame.qvm", FS_CGAME_REF );
+		FS_TouchFileInPak( "vm/ui.qvm", FS_UI_REF );
 		// rebuild referenced paks list
 		p = FS_ReferencedPakNames();
 	}
@@ -679,7 +693,20 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 	// send a heartbeat now so the master will get up to date info
 	SV_Heartbeat_f();
 
-	Hunk_SetMark();
+#ifndef DEDICATED
+	if ( clientLoading && FS_LoadStack() == 1 ) {
+		// move temp cached BSP data to the current permanent (high) side
+		// because all further client allocations will go on a low side
+		Hunk_MoveTempMemory( h_high );
+	} else {
+		// some erroneous case
+		if ( buf != NULL ) {
+			Hunk_FreeTempMemory( buf );
+		}
+	}
+#endif
+
+	Hunk_SetMark( h_high );
 
 	Com_Printf ("-----------------------------------\n");
 
@@ -863,7 +890,7 @@ static void SV_FinalMessage( const char *message ) {
 		}
 	}
 
-	NET_FlushPacketQueue( 99999 );
+	NET_FlushPacketQueue( -99999 );
 }
 
 
@@ -928,6 +955,8 @@ void SV_Shutdown( const char *finalmsg ) {
 	if ( sv_killserver->integer != 2 )
 		CL_Disconnect( qfalse );
 #endif
+
+	Hunk_Clear( h_high );
 
 	// clean some server cvars
 	Cvar_Set( "sv_referencedPaks", "" );

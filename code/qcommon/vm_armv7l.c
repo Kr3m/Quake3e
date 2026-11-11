@@ -104,7 +104,7 @@ static	uint32_t	ip;
 static	uint32_t	pass;
 static	uint32_t	savedOffset[ OFFSET_T_LAST ];
 
-
+static	qboolean	forceDataMask;
 
 #define R0	0  // scratch
 #define R1	1  // scratch
@@ -582,23 +582,24 @@ static void mov_rx( uint32_t dst, uint32_t src )
 	emit( MOV( dst, src ) );
 }
 
+
 static void mov_sx( uint32_t dst, uint32_t src )
 {
 	emit( VMOV( dst, src ) );
 }
 
-static uint32_t clone_rx( uint32_t reg )
+
+static uint32_t split_rx( uint32_t reg )
 {
 	const uint32_t rx = alloc_rx( R2 );
-	mov_rx( rx, reg );
 	unmask_rx( reg );
 	return rx;
 }
 
-static uint32_t clone_sx( uint32_t reg )
+
+static uint32_t split_sx( uint32_t reg )
 {
 	const uint32_t sx = alloc_sx( S2 );
-	mov_sx( sx, reg );
 	unmask_sx( reg );
 	return sx;
 }
@@ -764,8 +765,8 @@ static void emitFuncOffset( uint32_t comp, vm_t *vm, offset_t func )
 
 static void emit_CheckReg( vm_t *vm, uint32_t reg, offset_t func )
 {
-	if ( vm->forceDataMask || !( vm_rtChecks->integer & VM_RTCHECK_DATA ) ) {
-		emit(AND(reg, rDATAMASK, reg));    // rN = rN & rDATAMASK
+	if ( forceDataMask ) {
+		emit( AND( reg, rDATAMASK, reg ) );    // rN = rN & rDATAMASK
 		return;
 	}
 
@@ -1016,6 +1017,10 @@ static qboolean ConstOptimize( vm_t *vm, instruction_t *ci, instruction_t *ni )
 	uint32_t rx[2];
 	uint32_t sx[2];
 
+	if ( ni->jused ) {
+		return qfalse;
+	}
+
 	switch ( ni->op ) {
 
 	case OP_ADD:
@@ -1062,7 +1067,7 @@ static qboolean ConstOptimize( vm_t *vm, instruction_t *ci, instruction_t *ni )
 		return qtrue;
 
 	case OP_JUMP:
-		flush_volatile();
+		flush_opstack();
 		emit(Bi(encode_offset(vm->instructionPointers[ ci->value ] - compiledOfs)));
 		ip += 1; // OP_JUMP
 		return qtrue;
@@ -1146,6 +1151,7 @@ static qboolean ConstOptimize( vm_t *vm, instruction_t *ci, instruction_t *ni )
 		if ( can_encode( ci->value ) ) {
 			uint32_t comp = get_comp( ni->op );
 			rx[0] = load_rx_opstack( R0 | RCONST ); dec_opstack(); // r0 = *opstack; opstack -= 4
+			flush_nonvolatile();
 			emit( CMPi( rx[0], ci->value ) );
 			emit( cond( comp, Bi( encode_offset( vm->instructionPointers[ni->value] - compiledOfs ) ) ) );
 			unmask_rx( rx[0] );
@@ -1214,7 +1220,7 @@ qboolean VM_Compile( vm_t *vm, vmHeader_t *header )
 	}
 
 	if ( !vm->instructionPointers ) {
-		vm->instructionPointers = Hunk_Alloc( header->instructionCount * sizeof(vm->instructionPointers[0]), h_high );
+		vm->instructionPointers = Hunk_Alloc( header->instructionCount * sizeof(vm->instructionPointers[0]), h_current );
 	}
 
 	VM_ReplaceInstructions( vm, inst );
@@ -1223,6 +1229,12 @@ qboolean VM_Compile( vm_t *vm, vmHeader_t *header )
 
 	code = NULL;
 	vm->codeBase.ptr = NULL;
+
+	if ( vm->forceDataMask || (vm_rtChecks->integer & VM_RTCHECK_DATA) == 0 ) {
+		forceDataMask = qtrue;
+	} else {
+		forceDataMask = qfalse;
+	}
 
 	for ( pass = 0; pass < NUM_PASSES; pass++ ) {
 __recompile:
@@ -1277,7 +1289,7 @@ __recompile:
 		{
 			// we can safely perform register optimizations only in case if
 			// we are 100% sure that current instruction is not a jump label
-			flush_volatile();
+			flush_opstack();
 		}
 
 		vm->instructionPointers[ ip++ ] = compiledOfs;
@@ -1289,6 +1301,7 @@ __recompile:
 				break;
 
 			case OP_IGNORE:
+				ip += ci->value;
 				break;
 
 			case OP_BREAK:
@@ -1383,7 +1396,7 @@ __recompile:
 
 			case OP_JUMP:
 				rx[0] = load_rx_opstack( R0 | RCONST ); dec_opstack(); // r0 = *opstack; opstack -= 4
-				flush_volatile();
+				flush_opstack();
 				emit_CheckJump( vm, rx[0], proc_base, proc_len ); // check if r0 is within current proc
 				rx[1] = alloc_rx( R12 );
 				emit(LDRa(rx[1], rINSPOINTERS, rLSL(2, rx[0]))); // r12 = instructionPointers[ r0 ]
@@ -1406,6 +1419,7 @@ __recompile:
 				uint32_t comp = get_comp( ci->op );
 				rx[0] = load_rx_opstack( R0 | RCONST ); dec_opstack(); // r0 = *opstack; opstack -= 4
 				rx[1] = load_rx_opstack( R1 | RCONST ); dec_opstack(); // r1 = *opstack; opstack -= 4
+				flush_nonvolatile();
 				unmask_rx( rx[0] );
 				unmask_rx( rx[1] );
 				emit(CMP(rx[1], rx[0]));
@@ -1422,6 +1436,7 @@ __recompile:
 				uint32_t comp = get_comp( ci->op );
 				sx[0] = load_sx_opstack( S0 | RCONST ); dec_opstack(); // s0 = *opstack; opstack -= 4
 				sx[1] = load_sx_opstack( S1 | RCONST ); dec_opstack(); // s1 = *opstack; opstack -= 4
+				flush_nonvolatile();
 				unmask_sx( sx[0] );
 				unmask_sx( sx[1] );
 				emit(VCMP_F32(sx[1], sx[0]));
@@ -1496,20 +1511,28 @@ __recompile:
 						switch ( ci->op ) {
 							case OP_LOAD1:
 								if ( reg->ext != Z_EXT8 ) {
-									emit( UXTB( rx[0], rx[0] ) ); // r0 = (unsigned byte) r0
-									// invalidate any mappings that overlaps with high [8..31] bits
-									//var.addr += 1; var.size = 3;
-									//wipe_reg_range( rx_regs + rx[0], &var );
-									reduce_map_size( reg, 1 );
+									if ( search_opstack( TYPE_RX, rx[0] ) ) {
+										rx[1] = split_rx( rx[0] );		// alloc rx[1], unmask rx[0]
+										emit( UXTB( rx[1], rx[0] ) );	// r1 = (unsigned byte) r0
+										set_rx_ext( rx[1], Z_EXT8 );
+										rx[0] = rx[1];					// remap rx[0] to the copy
+									} else {
+										emit( UXTB( rx[0], rx[0] ) );	// r0 = (unsigned byte) r0
+										reduce_map_size( reg, 1 );
+									}
 								}
 								break;
 							case OP_LOAD2:
 								if ( reg->ext != Z_EXT16 ) {
-									emit( UXTH( rx[0], rx[0] ) ); // r0 = (unsigned short) r0
-									// invalidate any mappings that overlaps with high [16..31] bits 
-									//var.addr += 2; var.size = 2;
-									//wipe_reg_range( rx_regs + rx[0], &var );
-									reduce_map_size( reg, 2 );
+									if ( search_opstack( TYPE_RX, rx[0] ) ) {
+										rx[1] = split_rx( rx[0] );		// alloc rx[1], unmask rx[0]
+										emit( UXTH( rx[1], rx[0] ) );	// r1 = (unsigned short) r0
+										set_rx_ext( rx[1], Z_EXT16 );
+										rx[0] = rx[1];					// remap rx[0] to the copy
+									} else {
+										emit( UXTH( rx[0], rx[0] ) );	// r0 = (unsigned short) r0
+										reduce_map_size( reg, 2 );
+									}
 								}
 								break;
 							case OP_LOAD4:
@@ -1662,7 +1685,8 @@ __recompile:
 						set_rx_var( rx[0], &var ); // update metadata
 					} else {
 						// address specified by register
-						rx[1] = load_rx_opstack( R1 | RCONST ); dec_opstack(); // r1 = *opstack; opstack -= 4
+						rx[1] = load_rx_opstack( forceDataMask ? R1 : R1 | RCONST );
+						dec_opstack(); // r1 = *opStack; opStack -= 4
 						emit_CheckReg( vm, rx[1], FUNC_BADW );
 						switch ( ci->op ) {
 							case OP_STORE1: emit( STRBa( rx[0], rDATABASE, rx[1] ) ); break; // (byte*)database[r1] = r0
@@ -1734,8 +1758,8 @@ __recompile:
 #else
 					rx[1] = load_rx_opstack( R1 | FORCED ); dec_opstack(); // r1 = *opstack
 					rx[0] = load_rx_opstack( R0 | FORCED ); // opstack-=4; r0 = *opstack
-					rx[2] = alloc_rx( R12 );
 					flush_volatile();
+					rx[2] = alloc_rx( R12 );
 					if ( ci->op == OP_DIVI )
 						mov_rx_imm32( rx[2], (intptr_t)__aeabi_idiv );
 					else

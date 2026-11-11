@@ -433,7 +433,7 @@ ifdef MINGW
 
   LDFLAGS += -mwindows -Wl,--dynamicbase -Wl,--nxcompat
   LDFLAGS += -Wl,--gc-sections -fvisibility=hidden
-  LDFLAGS += -lwsock32 -lgdi32 -lwinmm -lole32 -lws2_32 -lpsapi -lcomctl32
+  LDFLAGS += -lwsock32 -lgdi32 -lwinmm -lole32 -lws2_32 -lpsapi -lcomctl32 -liphlpapi
   LDFLAGS += -flto
 
   CLIENT_LDFLAGS=$(LDFLAGS)
@@ -564,10 +564,12 @@ else
 
   ifeq ($(ARCH),ppc64le)
     ARCHEXT = .ppc64le
+    OPTIMIZE += -mcpu=power8 -mvsx
   endif
 
   ifeq ($(ARCH),ppc64)
     ARCHEXT = .ppc64
+    OPTIMIZE += -mcpu=power8 -mvsx
   endif
 
   SHLIBEXT = so

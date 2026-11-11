@@ -27,13 +27,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [x86, x86_64]
+        arch: [x86_64] # x86
         cc: [gcc]
         btype: [Release, Debug]
         include:
-          - arch: x86
-            msystem: MINGW32
-            prefix: mingw-w64-i686
+#         - arch: x86
+#           msystem: MINGW32
+#           prefix: mingw-w64-i686
 
           - arch: x86_64
             msystem: MINGW64
@@ -60,7 +60,7 @@ jobs:
         update: false
         cache: false
 
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         submodules: recursive
 
@@ -97,10 +97,10 @@ jobs:
 
     steps:
     - name: Checkout current repo
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
 
     - name: Checkout msys32 tools from sibling repo
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         repository: ec-/msys32
         path: msys
@@ -158,7 +158,7 @@ jobs:
 
     - uses: microsoft/setup-msbuild@v3
 
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         submodules: recursive
 
@@ -227,7 +227,7 @@ jobs:
           sudo apt-get -y install libcurl4-openssl-dev mesa-common-dev libxxf86dga-dev libxrandr-dev libxxf86vm-dev libasound-dev libsdl2-dev
         fi
 
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         submodules: recursive
 
@@ -264,7 +264,7 @@ jobs:
 
     steps:
 
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       if: false
       with:
         submodules: recursive
@@ -320,7 +320,7 @@ jobs:
         sudo apt-get install -y make gcc g++
         sudo apt-get -y install libcurl4-openssl-dev mesa-common-dev libxxf86dga-dev libxrandr-dev libxxf86vm-dev libasound-dev libsdl2-dev
 
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         submodules: recursive
 
@@ -341,7 +341,7 @@ jobs:
 
   macos-x86:
     name: ${{ matrix.btype }} macOS ${{ matrix.arch }}
-    runs-on: macos-14
+    runs-on: macos-15
     strategy:
       fail-fast: false
       matrix:
@@ -357,10 +357,13 @@ jobs:
 
     steps:
 
+    - name: Trust taps
+      run: brew trust aws/tap azure/bicep
+
     - name: Install tools
       run: brew install coreutils sdl2 # pkg-config
 
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         submodules: recursive
 
@@ -452,7 +455,7 @@ jobs:
 
     steps:
       - name: Download Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
 
       - name: Create archive
         run: 7z a -r ${{ matrix.artifact_name }} ./${{ matrix.artifact_dir }}/*

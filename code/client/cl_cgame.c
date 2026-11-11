@@ -366,8 +366,15 @@ Just adds default parameters that cgame doesn't need to know about
 */
 static void CL_CM_LoadMap( const char *mapname ) {
 	int		checksum;
+	void	*buf;
 
-	CM_LoadMap( mapname, qtrue, &checksum );
+	Hunk_AllocPreference( h_low );
+
+	buf = CM_LoadMap( mapname, 1, &checksum );
+	if ( buf ) {
+		// we need this memory for a renderer module later
+		// Hunk_FreeTempMemory( buf );
+	}
 }
 
 
@@ -392,6 +399,10 @@ void CL_ShutdownCGame( void ) {
 	VM_Free( cgvm );
 	cgvm = NULL;
 	FS_VM_CloseFiles( H_CGAME );
+
+	if ( !com_sv_running->integer ) {
+		CM_ClearMap();
+	}
 }
 
 
@@ -438,6 +449,11 @@ static qboolean CL_GetValue( char* value, int valueSize, const char* key ) {
 
 	if ( !Q_stricmp( key, "trap_Cvar_SetDescription_Q3E" ) ) {
 		Com_sprintf( value, valueSize, "%i", CG_CVAR_SETDESCRIPTION );
+		return qtrue;
+	}
+
+	if ( !Q_stricmp( key, "trap_Key_CapsLockOn_Q3E" ) ) {
+		Com_sprintf( value, valueSize, "%i", CG_KEY_CAPSLOCK_ON );
 		return qtrue;
 	}
 
@@ -790,6 +806,9 @@ static intptr_t CL_CgameSystemCalls( intptr_t *args ) {
 	case CG_CVAR_SETDESCRIPTION:
 		Cvar_SetDescription2( (const char*)VMA(1), (const char*)VMA(2) );
 		return 0;
+
+	case CG_KEY_CAPSLOCK_ON:
+		return Key_CapsLockOn();
 
 	case CG_TRAP_GETVALUE:
 		VM_CHECKBOUNDS( cgvm, args[1], args[2] );

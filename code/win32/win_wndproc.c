@@ -48,8 +48,11 @@ static LRESULT CALLBACK WinKeyHook( int code, WPARAM wParam, LPARAM lParam )
 	case WM_KEYDOWN:
 	case WM_SYSKEYDOWN:
 		if ( ( key->vkCode == VK_LWIN || key->vkCode == VK_RWIN ) && !(Key_GetCatcher() & KEYCATCH_CONSOLE) ) {
-			Sys_QueEvent( 0, SE_KEY, K_SUPER, qtrue, 0, NULL );
-			return 1;
+			const char* bind = Key_GetBinding( K_SUPER );
+			if ( bind && *bind != '\0' ) {
+				Sys_QueEvent( 0, SE_KEY, K_SUPER, qtrue, 0, NULL );
+				return 1;
+			}
 		}
 		if ( key->vkCode == VK_SNAPSHOT ) {
 			Sys_QueEvent( 0, SE_KEY, K_PRINT, qtrue, 0, NULL );
@@ -58,8 +61,11 @@ static LRESULT CALLBACK WinKeyHook( int code, WPARAM wParam, LPARAM lParam )
 	case WM_KEYUP:
 	case WM_SYSKEYUP:
 		if ( ( key->vkCode == VK_LWIN || key->vkCode == VK_RWIN ) && !(Key_GetCatcher() & KEYCATCH_CONSOLE) ) {
-			Sys_QueEvent( 0, SE_KEY, K_SUPER, qfalse, 0, NULL );
-			return 1;
+			const char* bind = Key_GetBinding( K_SUPER );
+			if ( bind && *bind != '\0' ) {
+				Sys_QueEvent( 0, SE_KEY, K_SUPER, qfalse, 0, NULL );
+				return 1;
+			}
 		}
 		if ( key->vkCode == VK_SNAPSHOT ) {
 			Sys_QueEvent( 0, SE_KEY, K_PRINT, qfalse, 0, NULL );
@@ -877,7 +883,7 @@ LRESULT WINAPI MainWndProc( HWND hWnd, UINT uMsg, WPARAM  wParam, LPARAM lParam 
 	case WM_MOUSEMOVE:
 		if ( IN_MouseActive() ) {
 			int mstate = (wParam & (MK_LBUTTON|MK_RBUTTON)) + ((wParam & (MK_MBUTTON|MK_XBUTTON1|MK_XBUTTON2)) >> 2);
-			IN_Win32MouseEvent( LOWORD(lParam), HIWORD(lParam), mstate );
+			IN_Win32MouseEvent( mstate );
 			return 0;
 		}
 		break;
@@ -1063,4 +1069,15 @@ void Sys_SetClipboardBitmap( const byte *bitmap, int length )
 		SetClipboardData( CF_DIB, hMem );
 	}
 	CloseClipboard();
+}
+
+
+/*
+===================
+Key_CapsLockOn
+===================
+*/
+qboolean Key_CapsLockOn( void )
+{
+	return ( GetKeyState( VK_CAPITAL ) & 1 ) ? qtrue : qfalse;
 }

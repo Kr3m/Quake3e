@@ -1946,7 +1946,6 @@ R_LoadMarksurfaces
 static void R_LoadMarksurfaces( const lump_t *l )
 {	
 	int		i, count;
-	unsigned	j;
 	int		*in;
 	msurface_t **out;
 	
@@ -1961,9 +1960,13 @@ static void R_LoadMarksurfaces( const lump_t *l )
 
 	for ( i=0 ; i<count ; i++)
 	{
-		j = LittleLong(in[i]);
+		unsigned j = LittleLong(in[i]);
 		if ( j >= s_worldData.numsurfaces ) {
-			ri.Error( ERR_DROP, "%s: bad surface", __func__ );
+			if ( j == 0xFFFFFFFF ) {
+				j = 0; // fix for ut43_azurea_b1 map
+			} else {
+				ri.Error( ERR_DROP, "%s: bad surface", __func__ );
+			}
 		}
 		out[i] = s_worldData.surfaces + j;
 	}
@@ -2329,8 +2332,12 @@ void RE_LoadWorldMap( const char *name ) {
 
 	tr.worldMapLoaded = qtrue;
 
-	// load it
-	size = ri.FS_ReadFile( name, &buffer.v );
+ 	// try to get from cache first
+	size = ri.Hunk_GetTempMemory( &buffer.v );
+	if ( size == 0 ) {
+		// load it
+		size = ri.FS_ReadFile( name, &buffer.v );
+	}
 	if ( !buffer.b ) {
 		ri.Error( ERR_DROP, "%s: couldn't load %s", __func__, name );
 	}
